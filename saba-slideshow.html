@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Saba Teaching Slideshow</title>
+<style>
+  :root {
+    --caption-h: 56px;
+    --ink: #1c1c1e;
+    --paper: #ffffff;
+    --muted: #8a8a8e;
+    --line: #e2e2e5;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--paper); color: var(--ink);
+    touch-action: manipulation;
+  }
+  #stage {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    user-select: none; -webkit-user-select: none;
+  }
+  #content {
+    flex: 1;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 28px;
+    padding: 32px 24px;
+    text-align: center;
+    overflow: hidden;
+  }
+  .big-text {
+    font-size: clamp(32px, 7vw, 72px);
+    font-weight: 800;
+    line-height: 1.15;
+    margin: 0;
+  }
+  .label-text {
+    font-size: clamp(22px, 5vw, 40px);
+    font-weight: 600;
+    margin: 0;
+    color: var(--ink);
+  }
+  .sub-text {
+    font-size: clamp(18px, 3.5vw, 26px);
+    font-weight: 500;
+    color: var(--muted);
+    margin: 0;
+  }
+  .hebrew-text {
+    font-size: clamp(48px, 12vw, 120px);
+    font-weight: 700;
+    direction: rtl;
+    margin: 0;
+  }
+  .char-wrap img, .picture-wrap img {
+    max-width: 92vw;
+    max-height: 80vh;
+    object-fit: contain;
+    display: block;
+  }
+  /* composite-stage's width/height are set inline by JS (buildCompositeStage /
+     applyStageSize) so the box is deliberately sized to fit within the
+     available screen space with room to spare — see STAGE_WIDTH_FRACTION /
+     STAGE_HEIGHT_FRACTION below if it ever needs to be nudged bigger/smaller. */
+  .composite-stage {
+    position: relative;
+  }
+  .composite-stage img,
+  .composite-stage .placeholder {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  img.faded {
+    opacity: 0.2; /* re-drill backdrop, done in code instead of a separate "-50" asset */
+  }
+  @keyframes popIn {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+  }
+  .pop-in {
+    transform-origin: center;
+    animation: popIn 0.4s ease-out;
+  }
+  .two-up {
+    display: flex;
+    gap: 32px;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .two-up img { max-width: 34vw; max-height: 40vh; object-fit: contain; }
+  .placeholder {
+    display: flex; align-items: center; justify-content: center;
+    width: min(70vw, 480px);
+    aspect-ratio: 4 / 3;
+    border: 2px dashed var(--line);
+    border-radius: 12px;
+    background: #fafafa;
+    color: var(--muted);
+    font-size: 15px;
+    padding: 12px;
+    text-align: center;
+  }
+  .placeholder.small { width: 34vw; }
+  #caption-bar {
+    height: var(--caption-h);
+    flex-shrink: 0;
+    background: #111;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 20px;
+    font-size: clamp(15px, 2.6vw, 19px);
+    text-align: center;
+  }
+  #hud {
+    position: fixed;
+    top: 8px; right: 12px;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    z-index: 20;
+  }
+  #frame-id {
+    position: fixed;
+    top: 8px; left: 12px;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #bbb;
+    background: rgba(0,0,0,0.04);
+    padding: 2px 6px;
+    border-radius: 4px;
+    z-index: 20;
+    display: none;
+  }
+  #frame-id.show { display: block; }
+  #back-btn {
+    position: fixed;
+    bottom: calc(var(--caption-h) + 10px);
+    left: 10px;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.06);
+    color: var(--muted);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    z-index: 20;
+  }
+  .blank-line {
+    display: inline-block;
+    min-width: 3em;
+    border-bottom: 3px solid var(--ink);
+    margin: 0 6px;
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="content"></div>
+  <div id="caption-bar"><span id="caption-text"></span></div>
+</div>
+<div id="hud"></div>
+<div id="frame-id"></div>
+<div id="back-btn">&#8249;</div>
+
+<script>
+/* =========================================================================
+   SABA TEACHING SLIDESHOW — Pass 1 (functional)
+   Zuriel Yahav method: Sa + Ba -> Saba
+
+   HOW TO EDIT
+   -----------
+   1) ASSETS: put your PNGs in this same folder and reference the exact
+      filenames below. If a filename is left blank or the file isn't found
+      yet, the deck shows a dashed placeholder box naming the missing file
+      instead of crashing — safe to open and click through right now.
+
+   2) LETTERS / PARTS: each letter has an ordered "parts" list (label text
+      for each anchor point in its picture). Edit labels/order freely —
+      the whole cycle (reveal, anchor, re-drill, blank, recall) rebuilds
+      itself from this data. Sa and Ba currently use PLACEHOLDER part
+      labels (handle/body/weave, neck/body/base) — swap in the real
+      breakdown whenever you have it.
+
+   3) CAPTIONS: CAPTIONS[frameId] = 'subtitle text'. Leave '' for silence.
+      Press the "i" key while viewing the deck to show each frame's id in
+      the top-left corner, so you know which id to paste text against.
+
+   4) MOMENTS: MOMENTS.onX(...) functions are called at key beats but do
+      nothing yet — Pass 2 hooks confetti/sound/animation here.
+
+   NAVIGATION (for you, while teaching)
+   -------------------------------------
+   Tap anywhere            -> next slide
+   Tiny "‹" bottom-left     -> previous slide
+   Arrow keys / space       -> next / previous (for testing on a Mac)
+   "i" key                  -> toggle frame-id overlay (for caption editing)
+   ========================================================================= */
+
+  // ---------------------------------------------------------------------
+  // 1) ASSETS — drop files into the "assets" folder next to this HTML file.
+  //    Naming convention (Noam's):
+  //      {char}-{picture}-c.png     full character alone
+  //      {char}-{picture}-i.png     the plain picture ("image")
+  //      {char}-{picture}-e1.png    element 1 overlay (transparent, registered to i.png)
+  //      {char}-{picture}-e2.png    element 2 overlay, e3/e4 etc. as needed
+  //    All same-canvas files stack at 0,0 and register perfectly.
+  //    (No separate "-50" faded file needed — the 50% opacity re-drill
+  //    backdrop is done in code from the same -c.png, so there's only one
+  //    character file to keep in sync per letter.)
+  // ---------------------------------------------------------------------
+  const ASSETS = {
+    sa_character:   'assets/sa-sal-c.png',
+    sal_picture:    'assets/sa-sal-i.png',
+    ba_character:   'assets/ba-bakbuk-c.png',
+    bakbuk_picture: 'assets/ba-bakbuk-i.png',
+    saba_word_img:  '', // optional: image of סַבָּא with nikkud; leave '' to use text instead
+  };
+
+  // ---------------------------------------------------------------------
+  // 2) LETTERS — PLACEHOLDER element breakdowns below (marked EDIT ME).
+  //    Swap in the real Sal / Bakbuk elements any time — any number of
+  //    elements works (2, 3, or 4), no code changes needed.
+  //
+  //    Each element is a TRANSPARENT overlay PNG (just the red-circle
+  //    marker) sized/registered to sit exactly on top of the picture (round 1)
+  //    or the faded picture + character (round 2 re-drill) below it.
+  //
+  //    `origin`: the "x% y%" point (as measured across that element PNG's
+  //    own canvas) to scale the pop-in animation from — the center of the
+  //    visible red mark, not the center of the mostly-transparent canvas.
+  //    Precomputed from the actual file (measured, not detected live in the
+  //    browser). Recompute this any time that element's PNG is replaced.
+  // ---------------------------------------------------------------------
+  const LETTERS = {
+    sa: {
+      id: 'sa',
+      name: 'Sa',
+      characterImg: ASSETS.sa_character,
+      pictureImg: ASSETS.sal_picture,
+      pictureName: 'Sal',
+      elements: [
+        { id: 'ring', overlayImg: 'assets/sa-sal-e1.png', label: 'This is the ring', origin: '37% 58%' },
+        { id: 'net',  overlayImg: 'assets/sa-sal-e2.png', label: 'This is the net',  origin: '37% 77%' },
+      ],
+    },
+    ba: {
+      id: 'ba',
+      name: 'Ba',
+      characterImg: ASSETS.ba_character,
+      pictureImg: ASSETS.bakbuk_picture,
+      pictureName: 'Bakbuk',
+      elements: [ // EDIT ME — placeholder bottle elements + placeholder origins
+        { id: 'neck', overlayImg: 'assets/ba-bakbuk-e1.png', label: 'This is the neck', origin: '50% 50%' },
+        { id: 'body', overlayImg: 'assets/ba-bakbuk-e2.png', label: 'This is the body', origin: '50% 50%' },
+        { id: 'base', overlayImg: 'assets/ba-bakbuk-e3.png', label: 'This is the base', origin: '50% 50%' },
+      ],
+    },
+  };
+
+  // ---------------------------------------------------------------------
+  // 3) CAPTIONS — paste narration/subtitle text per frame id. Empty = silent.
+  //    (Frame ids are auto-listed after the deck builds; press "i" to see them live.)
+  // ---------------------------------------------------------------------
+  const CAPTIONS = {
+    // 'sa-character': 'Hi, I\'m Sa!',
+  };
+
+  // ---------------------------------------------------------------------
+  // 4) MOMENT HOOKS — no-ops in Pass 1. Pass 2 attaches effects here.
+  // ---------------------------------------------------------------------
+  const MOMENTS = {
+    onCorrectAnswerConfirmed(frame) {},
+    onCycleComplete(letterId) {},
+    onFinalWordRevealed() {},
+    onCelebration() {},
+  };
+
+  // =========================================================================
+  // TEMPLATE ENGINE — builds one letter's full teaching cycle from its data.
+  // You shouldn't need to edit below this line to change content.
+  // =========================================================================
+
+  function buildCycleFrames(L) {
+    const frames = [];
+
+    // 1. Reveal character alone + tease hiding spot — ONE frame, one tap
+    // ("This is Sa. Sa likes hiding in there…" said together, then tap).
+    frames.push({
+      id: `${L.id}-character`,
+      kind: 'solo-character',
+      img: L.characterImg,
+      text: `This is ${L.name}. ${L.name} likes hiding in the…`,
+    });
+
+    // 2. Reveal picture (no breakdown yet)
+    frames.push({
+      id: `${L.id}-picture`,
+      kind: 'picture-reveal',
+      img: L.pictureImg,
+      text: `${L.pictureName}!`,
+    });
+
+    // 3..n. Anchor each element on the plain picture — CUMULATIVE: every
+    // previously-shown element overlay stays on screen, the new one is
+    // added on top of it (never replaced).
+    const shownOnPicture = [];
+    L.elements.forEach((elmt) => {
+      shownOnPicture.push(elmt.overlayImg);
+      frames.push({
+        id: `${L.id}-anchor-${elmt.id}`,
+        kind: 'anchor',
+        imgs: [L.pictureImg, ...shownOnPicture],
+        animateSrc: elmt.overlayImg, // only the element that's new THIS tap pops in
+        animateOrigin: elmt.origin,
+        text: elmt.label,
+      });
+    });
+
+    // ROUND 2 (re-drill): the character stays on screen at 100% opacity for
+    // the whole round, stacked over the picture faded to 50% — and elements
+    // accumulate on top of THAT, the same "everything stays, new thing adds
+    // on" rule as round 1. Nothing is ever withheld/blanked; every element
+    // gets shown, then a final tap confirms the picture's name.
+    const redrillBase = [L.pictureImg, L.characterImg]; // faded picture + character, present for all of round 2
+    frames.push({
+      id: `${L.id}-redrill-character`,
+      kind: 'anchor',
+      imgs: [...redrillBase],
+      fadeBase: true,
+      text: `${L.name}!`,
+    });
+
+    const shownInRedrill = [];
+    L.elements.forEach((elmt) => {
+      shownInRedrill.push(elmt.overlayImg);
+      frames.push({
+        id: `${L.id}-redrill-${elmt.id}`,
+        kind: 'anchor',
+        imgs: [...redrillBase, ...shownInRedrill],
+        fadeBase: true,
+        animateSrc: elmt.overlayImg, // only the element, never the character, pops in
+        animateOrigin: elmt.origin,
+        text: elmt.label,
+      });
+    });
+
+    // Confirm the picture's name — back to the full-opacity picture, no
+    // character, no element overlays.
+    frames.push({
+      id: `${L.id}-redrill-answer`,
+      kind: 'picture-reveal',
+      img: L.pictureImg,
+      text: `${L.pictureName}!`,
+      moment: 'onCorrectAnswerConfirmed',
+    });
+
+    // Cold recall test — same "faded picture + character" look as the
+    // re-drill transition, reused as the recall cue, then confirmed with
+    // the full-opacity picture again.
+    frames.push({
+      id: `${L.id}-recall-prompt`,
+      kind: 'anchor',
+      imgs: [...redrillBase],
+      fadeBase: true,
+      text: `${L.name} likes hiding in the…?`,
+    });
+    frames.push({
+      id: `${L.id}-recall-answer`,
+      kind: 'recall-answer',
+      img: L.pictureImg,
+      text: `${L.pictureName}!`,
+      moment: 'onCorrectAnswerConfirmed',
+    });
+
+    // End-of-cycle celebration — plain "Yay!" text, no mascot/decoration (Pass 2 attaches effects later)
+    frames.push({
+      id: `${L.id}-yay`,
+      kind: 'yay',
+      text: 'Yay!',
+      moment: 'onCycleComplete',
+      momentArg: L.id,
+    });
+
+    return frames;
+  }
+
+  function buildCrossReview() {
+    const frames = [];
+    [LETTERS.sa, LETTERS.ba].forEach((L) => {
+      frames.push({
+        id: `review-${L.id}-character`,
+        kind: 'solo-character',
+        img: L.characterImg,
+        text: `${L.name}!`,
+      });
+      frames.push({
+        id: `review-${L.id}-recall-prompt`,
+        kind: 'recall-prompt',
+        img: L.characterImg,
+        text: `${L.name} likes hiding in the…?`,
+      });
+      frames.push({
+        id: `review-${L.id}-recall-answer`,
+        kind: 'recall-answer',
+        img: L.pictureImg,
+        text: `${L.pictureName}!`,
+        moment: 'onCorrectAnswerConfirmed',
+      });
+    });
+    return frames;
+  }
+
+  function buildCombine() {
+    return [
+      {
+        id: 'combine-both',
+        kind: 'two-characters',
+        imgs: [LETTERS.sa.characterImg, LETTERS.ba.characterImg],
+        text: 'Who’s this? What’s his name?',
+      },
+      {
+        id: 'combine-spell',
+        kind: 'two-characters',
+        imgs: [LETTERS.sa.characterImg, LETTERS.ba.characterImg],
+        text: 'Sa… Ba…',
+      },
+      {
+        id: 'combine-blend',
+        kind: 'two-characters',
+        imgs: [LETTERS.sa.characterImg, LETTERS.ba.characterImg],
+        text: 'Sa-ba!',
+      },
+    ];
+  }
+
+  function buildWordReveal() {
+    return [
+      {
+        id: 'word-reveal',
+        kind: 'word-reveal',
+        img: ASSETS.saba_word_img,
+        text: 'סַבָּא', // סַבָּא
+        moment: 'onFinalWordRevealed',
+      },
+      {
+        id: 'translate',
+        kind: 'translate',
+        text: 'Saba in Hebrew is... Grandfather!',
+      },
+    ];
+  }
+
+  function buildCelebration() {
+    return [
+      {
+        id: 'celebration',
+        kind: 'yay',
+        text: 'Yay!',
+        moment: 'onCelebration',
+      },
+    ];
+  }
+
+  function buildDeck() {
+    return [
+      ...buildCycleFrames(LETTERS.sa),
+      ...buildCycleFrames(LETTERS.ba),
+      ...buildCrossReview(),
+      ...buildCombine(),
+      ...buildWordReveal(),
+      ...buildCelebration(),
+    ];
+  }
+
+  // =========================================================================
+  // RENDER ENGINE
+  // =========================================================================
+
+  const frames = buildDeck();
+  // Auto-fill any caption not explicitly set, so CAPTIONS always has every id.
+  frames.forEach((f) => { if (!(f.id in CAPTIONS)) CAPTIONS[f.id] = ''; });
+
+  // Preload every image referenced anywhere in the deck up front, so the
+  // browser already has each one decoded/cached by the time a tap reaches
+  // it — this is what removes the jump/stutter on first visit to a slide.
+  // Also cache each image's natural width/height as soon as it's known, so
+  // the stage can be sized correctly on the very first paint instead of
+  // waiting for an onload — this is what keeps size/position locked across
+  // every slide instead of momentarily snapping to a fallback box.
+  const imageDims = new Map();
+  function preloadAllImages(allFrames) {
+    const seen = new Set();
+    allFrames.forEach((f) => {
+      const srcs = [].concat(f.img || [], f.imgs || []);
+      srcs.forEach((src) => {
+        if (src && !seen.has(src)) {
+          seen.add(src);
+          const preloadEl = new Image();
+          preloadEl.onload = () => {
+            imageDims.set(src, { w: preloadEl.naturalWidth, h: preloadEl.naturalHeight });
+          };
+          preloadEl.src = src;
+        }
+      });
+    });
+  }
+  preloadAllImages(frames);
+
+  let index = 0;
+  const contentEl = document.getElementById('content');
+  const captionEl = document.getElementById('caption-text');
+  const hudEl = document.getElementById('hud');
+  const frameIdEl = document.getElementById('frame-id');
+
+  function imgOrPlaceholder(src, extraClass) {
+    if (!src) {
+      const d = document.createElement('div');
+      d.className = 'placeholder' + (extraClass ? ' ' + extraClass : '');
+      d.textContent = '[image not set]';
+      return d;
+    }
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = src;
+    img.onerror = function () {
+      const d = document.createElement('div');
+      d.className = 'placeholder' + (extraClass ? ' ' + extraClass : '');
+      d.textContent = `[missing: ${src}]`;
+      img.replaceWith(d);
+    };
+    return img;
+  }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  // How big the on-screen "scene" box gets, as a fraction of the available
+  // content area (which already excludes the caption bar). Turn these down
+  // to shrink everything, up to grow it — this is the one place to tune it.
+  const STAGE_WIDTH_FRACTION = 0.62;
+  const STAGE_HEIGHT_FRACTION = 0.68;
+  const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
+
+  // Fits a box of `dims` aspect ratio inside the fraction of contentEl's box
+  // defined above, on BOTH axes at once (unlike CSS aspect-ratio alone,
+  // which only fixes one axis and can overflow the other) — this is what
+  // guarantees the scene is always "big enough but not too big, with room
+  // to spare" regardless of whether an image is tall, wide, or square.
+  function applyStageSize(stage, dims) {
+    const rect = contentEl.getBoundingClientRect();
+    const maxW = rect.width * STAGE_WIDTH_FRACTION;
+    const maxH = rect.height * STAGE_HEIGHT_FRACTION;
+    const scale = Math.min(maxW / dims.w, maxH / dims.h);
+    stage.style.width = `${Math.round(dims.w * scale)}px`;
+    stage.style.height = `${Math.round(dims.h * scale)}px`;
+  }
+
+  // Builds a same-size, same-position stage for ANY canvas-scale image —
+  // character alone, plain picture, or a picture/character with one or more
+  // transparent element overlays stacked on top at 0,0 so pre-registered
+  // PNGs line up automatically. Every frame kind that shows the "scene"
+  // (character, picture, elements) goes through this ONE function so the
+  // box is always identical — that's what keeps size/position locked
+  // across every slide instead of jumping between different sizing rules.
+  // `overlaySrcs` is an array (possibly empty) applied in order, so earlier
+  // elements stay visible underneath later ones (cumulative, never swapped
+  // out). `fadeBase` dims the base image to 50% opacity in code (the
+  // re-drill look) without needing a second "-50" asset file.
+  // Caches, per image src, the "x% y%" transform-origin that sits at the
+  // center of that PNG's actual visible (non-transparent) mark — computed
+  // once by scanning pixel alpha via an offscreen canvas. Needed because
+  // each element overlay is a mostly-transparent full-canvas PNG, so
+  // scaling from the box's geometric center (the default) makes the small
+  // visible red mark appear to drift instead of growing in place.
+  // `animateSrc` + `animateOrigin`: the ONE overlay src (an element marker,
+  // never the character) that should play the pop-in scale for this tap,
+  // and the "x% y%" transform-origin to scale it from. The origin is a
+  // precomputed constant per element (see each element's `origin` field in
+  // LETTERS below) rather than detected at runtime — Chrome blocks reading
+  // pixel data back out of a canvas for file:// images (a "tainted canvas"
+  // security restriction), so scanning for the visible mark's true center
+  // in-browser isn't reliable here. Whenever an element's PNG is replaced,
+  // its `origin` should be recomputed (quick to redo, ask and it's a
+  // one-line update — no restructuring).
+  function buildCompositeStage(baseSrc, overlaySrcs, fadeBase, animateSrc, animateOrigin) {
+    const stage = el('div', 'composite-stage');
+    const knownDims = baseSrc && imageDims.get(baseSrc);
+    applyStageSize(stage, knownDims || FALLBACK_DIMS);
+    const base = imgOrPlaceholder(baseSrc);
+    if (base.tagName === 'IMG') {
+      if (fadeBase) base.classList.add('faded');
+      if (!knownDims) {
+        base.onload = () => {
+          if (base.naturalWidth && base.naturalHeight) {
+            const dims = { w: base.naturalWidth, h: base.naturalHeight };
+            imageDims.set(baseSrc, dims);
+            applyStageSize(stage, dims);
+          }
+        };
+      }
+    }
+    stage.appendChild(base);
+    (overlaySrcs || []).forEach((src) => {
+      if (!src) return;
+      const overlayImg = imgOrPlaceholder(src);
+      if (src === animateSrc && overlayImg.tagName === 'IMG') {
+        overlayImg.style.transformOrigin = animateOrigin || '50% 50%';
+        overlayImg.classList.add('pop-in');
+      }
+      stage.appendChild(overlayImg);
+    });
+    return stage;
+  }
+
+  function renderFrame(frame) {
+    contentEl.innerHTML = '';
+
+    switch (frame.kind) {
+      // NOTE: no on-screen text for the teaching-cycle frames below — Noam
+      // narrates live and the caption strip (subtitle-style) carries the
+      // words. frame.text is kept on the data for reference/Pass-2 use, it's
+      // just not rendered here. ('Yay!' and the word-reveal are content in
+      // their own right, not narration, so those still render text.)
+      // solo-character / picture-reveal / anchor / blank / recall-prompt /
+      // recall-answer ALL go through the same buildCompositeStage box, so
+      // size and position never jump between them.
+      case 'solo-character':
+      case 'recall-prompt': {
+        const stage = buildCompositeStage(frame.img, [], frame.fade);
+        contentEl.appendChild(stage);
+        break;
+      }
+      case 'picture-reveal':
+      case 'recall-answer': {
+        const stage = buildCompositeStage(frame.img, []);
+        contentEl.appendChild(stage);
+        break;
+      }
+      case 'anchor':
+      case 'blank': {
+        const stage = buildCompositeStage(frame.imgs[0], frame.imgs.slice(1), frame.fadeBase, frame.animateSrc, frame.animateOrigin);
+        contentEl.appendChild(stage);
+        break;
+      }
+      case 'yay': {
+        // Plain blank screen + "Yay!" — no mascot/confetti/decoration in Pass 1.
+        // Pass 2 attaches celebration effects to this same frame kind.
+        contentEl.appendChild(el('p', 'big-text', frame.text));
+        break;
+      }
+      case 'two-characters': {
+        const wrap = el('div', 'two-up');
+        wrap.appendChild(imgOrPlaceholder(frame.imgs[0], 'small'));
+        wrap.appendChild(imgOrPlaceholder(frame.imgs[1], 'small'));
+        contentEl.appendChild(wrap);
+        contentEl.appendChild(el('p', 'big-text', frame.text));
+        break;
+      }
+      case 'word-reveal': {
+        if (frame.img) {
+          const wrap = el('div', 'picture-wrap');
+          wrap.appendChild(imgOrPlaceholder(frame.img));
+          contentEl.appendChild(wrap);
+        } else {
+          contentEl.appendChild(el('p', 'hebrew-text', frame.text));
+        }
+        break;
+      }
+      case 'translate': {
+        contentEl.appendChild(el('p', 'big-text', frame.text));
+        break;
+      }
+      default: {
+        contentEl.appendChild(el('p', 'sub-text', `[unknown frame kind: ${frame.kind}]`));
+      }
+    }
+
+    captionEl.textContent = CAPTIONS[frame.id] || '';
+    hudEl.textContent = `${index + 1} / ${frames.length}`;
+    frameIdEl.textContent = frame.id;
+
+    if (frame.moment && MOMENTS[frame.moment]) {
+      MOMENTS[frame.moment](frame.momentArg !== undefined ? frame.momentArg : frame);
+    }
+  }
+
+  function goTo(i) {
+    index = Math.max(0, Math.min(frames.length - 1, i));
+    renderFrame(frames[index]);
+  }
+  function next() { goTo(index + 1); }
+  function prev() { goTo(index - 1); }
+
+  // Expose for Pass 2 / debugging
+  window.SabaDeck = { frames, goTo, next, prev, get index() { return index; } };
+
+  // --- Navigation wiring ---
+  document.getElementById('stage').addEventListener('click', (e) => {
+    if (e.target.closest('#back-btn')) return;
+    next();
+  });
+  document.getElementById('back-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    prev();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'Backspace') { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') { goTo(0); }
+    else if (e.key.toLowerCase() === 'i') { frameIdEl.classList.toggle('show'); }
+  });
+  // Re-render on resize/orientation change so the stage box is re-fit to
+  // the new screen size (e.g. rotating an iPad mid-lesson).
+  window.addEventListener('resize', () => renderFrame(frames[index]));
+
+  // Boot
+  goTo(0);
+</script>
+</body>
+</html>
