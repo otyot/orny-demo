@@ -97,6 +97,43 @@
     text-align: center;
   }
   .placeholder.small { width: 34vw; }
+  /* READING PHASE — two mascots/letters side by side, an optional arrow
+     pointing up at whichever one is "active" this tap. Always right-to-left
+     (Sa on the right, Ba on the left) to match how סַבָּא is actually
+     spelled/read in Hebrew — true for the mascot rounds AND the real-letter
+     round, not just the letters. */
+  .reading-pair {
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 8vw;
+    width: 100%;
+  }
+  .reading-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .reading-arrow {
+    width: min(14vw, 100px);
+    height: auto;
+    object-fit: contain;
+    display: block;
+  }
+  .hebrew-text {
+    font-size: clamp(48px, 10vw, 110px);
+    font-weight: 700;
+    direction: rtl;
+    margin: 0;
+  }
+  .saba-illustration {
+    max-width: 38vw;
+    max-height: 60vh;
+    object-fit: contain;
+    display: block;
+  }
   #caption-bar {
     height: var(--caption-h);
     flex-shrink: 0;
@@ -210,6 +247,8 @@
     sal_picture:    'assets/sa-sal-i.png',
     ba_character:   'assets/ba-bakbuk-c.png',
     bakbuk_picture: 'assets/ba-bakbuk-i.png',
+    arrow_img:       'assets/arrow.png',
+    saba_illustration: 'assets/saba.png', // still image placeholder — swap for a short clip later, same slot
   };
 
   // ---------------------------------------------------------------------
@@ -267,6 +306,7 @@
   const MOMENTS = {
     onCorrectAnswerConfirmed(frame) {},
     onCycleComplete(letterId) {},
+    onFinalWordRevealed() {},
   };
 
   // =========================================================================
@@ -406,11 +446,74 @@
     return frames;
   }
 
+  // Phase 3 — reading. Sa and Ba are called by name (character mascots first,
+  // then the real Hebrew letters), taking turns: teacher demonstrates once,
+  // then the kid does it. Whichever side isn't "active" for a given tap just
+  // sits there as a plain, unfaded character/letter — nothing about it
+  // changes until it's its turn.
+  //
+  // Slot shapes (used for both `sa` and `ba` on every reading-pair frame):
+  //   { type: 'character', src }              — plain mascot image
+  //   { type: 'composite', base, overlay }     — mascot at full opacity over
+  //                                              its picture faded to 20%
+  //                                              (identical treatment to the
+  //                                              hiding-recall screens)
+  //   { type: 'text', text }                   — a real Hebrew letter cluster
+  //
+  // `active`: 'sa' | 'ba' | null — which side (if any) gets the arrow this tap.
+  // Every reading-pair frame renders right-to-left (Sa on the right, Ba on
+  // the left, via .reading-pair's row-reverse) since סַבָּא is spelled/read
+  // that way in Hebrew — true for the mascot rounds too, not just the letters.
+  function buildReadingPhase() {
+    const sa = LETTERS.sa;
+    const ba = LETTERS.ba;
+
+    const saCharacter = { type: 'character', src: sa.characterImg };
+    const baCharacter = { type: 'character', src: ba.characterImg };
+    const saComposite = { type: 'composite', base: sa.pictureImg, overlay: sa.characterImg };
+    const baComposite = { type: 'composite', base: ba.pictureImg, overlay: ba.characterImg };
+    const saLetter = { type: 'text', text: 'סַ' };
+    const baLetter = { type: 'text', text: 'בָּא' };
+
+    return [
+      // Round 1 — teacher demonstrates each name in turn.
+      { id: 'reading-intro', kind: 'reading-pair', sa: saCharacter, ba: baCharacter, active: null,
+        text: 'Let’s call them by their names, one at a time. I’ll go first.' },
+      { id: 'reading-demo-sa', kind: 'reading-pair', sa: saComposite, ba: baCharacter, active: 'sa',
+        text: 'Sa!' },
+      { id: 'reading-demo-ba', kind: 'reading-pair', sa: saCharacter, ba: baComposite, active: 'ba',
+        text: 'Ba!' },
+
+      // Round 2 — same visuals, kid's turn (silent prompts).
+      { id: 'reading-your-turn', kind: 'reading-pair', sa: saCharacter, ba: baCharacter, active: null,
+        text: 'Now it’s your turn.' },
+      { id: 'reading-kid-sa', kind: 'reading-pair', sa: saComposite, ba: baCharacter, active: 'sa',
+        text: '' },
+      { id: 'reading-kid-ba', kind: 'reading-pair', sa: saCharacter, ba: baComposite, active: 'ba',
+        text: '' },
+
+      // Round 3 — same drill, now with the real letters (gap between them).
+      { id: 'reading-letters-intro', kind: 'reading-pair', sa: saLetter, ba: baLetter, active: null,
+        text: 'Again!' },
+      { id: 'reading-letters-sa', kind: 'reading-pair', sa: saLetter, ba: baLetter, active: 'sa',
+        text: 'Sa!' },
+      { id: 'reading-letters-ba', kind: 'reading-pair', sa: saLetter, ba: baLetter, active: 'ba',
+        text: 'Ba!' },
+      { id: 'reading-letters-combine', kind: 'reading-pair', sa: saLetter, ba: baLetter, active: null,
+        text: 'What did we get?' },
+
+      // Final reveal — the gap closes into one real word, illustration alongside.
+      { id: 'saba-reveal', kind: 'saba-reveal', img: ASSETS.saba_illustration, text: 'סַבָּא',
+        moment: 'onFinalWordRevealed' },
+    ];
+  }
+
   function buildDeck() {
     return [
       ...buildCycleFrames(LETTERS.sa),
       ...buildCycleFrames(LETTERS.ba),
       ...buildHidingRecall(),
+      ...buildReadingPhase(),
     ];
   }
 
@@ -430,11 +533,25 @@
   // waiting for an onload — this is what keeps size/position locked across
   // every slide instead of momentarily snapping to a fallback box.
   const imageDims = new Map();
+  // Pulls every image src a frame references, whatever shape that frame is —
+  // including reading-pair's per-side slot specs (character/composite slots
+  // carry image srcs, text slots don't) and its arrow icon when a side is active.
+  function collectFrameSrcs(f) {
+    const srcs = [].concat(f.img || [], f.imgs || []);
+    if (f.kind === 'reading-pair') {
+      [f.sa, f.ba].forEach((slot) => {
+        if (!slot) return;
+        if (slot.type === 'composite') srcs.push(slot.base, slot.overlay);
+        else if (slot.type === 'character') srcs.push(slot.src);
+      });
+      if (f.active) srcs.push(ASSETS.arrow_img);
+    }
+    return srcs.filter(Boolean);
+  }
   function preloadAllImages(allFrames) {
     const seen = new Set();
     allFrames.forEach((f) => {
-      const srcs = [].concat(f.img || [], f.imgs || []);
-      srcs.forEach((src) => {
+      collectFrameSrcs(f).forEach((src) => {
         if (src && !seen.has(src)) {
           seen.add(src);
           const preloadEl = new Image();
@@ -462,6 +579,7 @@
       return d;
     }
     const img = document.createElement('img');
+    if (extraClass) img.className = extraClass;
     img.src = src;
     img.alt = src;
     img.onerror = function () {
@@ -485,17 +603,24 @@
   // to shrink everything, up to grow it — this is the one place to tune it.
   const STAGE_WIDTH_FRACTION = 0.62;
   const STAGE_HEIGHT_FRACTION = 0.68;
+  // Same idea, but sized for a reading-pair frame where TWO stages share the
+  // row side by side — each one gets a narrower budget so the pair fits
+  // together without overlapping.
+  const PAIR_WIDTH_FRACTION = 0.32;
+  const PAIR_HEIGHT_FRACTION = 0.5;
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
-  // Fits a box of `dims` aspect ratio inside the fraction of contentEl's box
-  // defined above, on BOTH axes at once (unlike CSS aspect-ratio alone,
-  // which only fixes one axis and can overflow the other) — this is what
-  // guarantees the scene is always "big enough but not too big, with room
-  // to spare" regardless of whether an image is tall, wide, or square.
-  function applyStageSize(stage, dims) {
+  // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
+  // on BOTH axes at once (unlike CSS aspect-ratio alone, which only fixes
+  // one axis and can overflow the other) — this is what guarantees the
+  // scene is always "big enough but not too big, with room to spare"
+  // regardless of whether an image is tall, wide, or square. Defaults to
+  // the solo-stage fractions; pass smaller ones (see PAIR_*_FRACTION above)
+  // when the stage has to share the row with another one.
+  function applyStageSize(stage, dims, widthFraction, heightFraction) {
     const rect = contentEl.getBoundingClientRect();
-    const maxW = rect.width * STAGE_WIDTH_FRACTION;
-    const maxH = rect.height * STAGE_HEIGHT_FRACTION;
+    const maxW = rect.width * (widthFraction || STAGE_WIDTH_FRACTION);
+    const maxH = rect.height * (heightFraction || STAGE_HEIGHT_FRACTION);
     const scale = Math.min(maxW / dims.w, maxH / dims.h);
     stage.style.width = `${Math.round(dims.w * scale)}px`;
     stage.style.height = `${Math.round(dims.h * scale)}px`;
@@ -528,10 +653,14 @@
   // in-browser isn't reliable here. Whenever an element's PNG is replaced,
   // its `origin` should be recomputed (quick to redo, ask and it's a
   // one-line update — no restructuring).
-  function buildCompositeStage(baseSrc, overlaySrcs, fadeBase, animateSrc, animateOrigin) {
+  // `widthFraction`/`heightFraction`: override the default solo-stage sizing
+  // budget — used by reading-pair frames (see buildReadingSlot) so each of
+  // the two side-by-side stages only claims its half of the row instead of
+  // the full-screen fraction.
+  function buildCompositeStage(baseSrc, overlaySrcs, fadeBase, animateSrc, animateOrigin, widthFraction, heightFraction) {
     const stage = el('div', 'composite-stage');
     const knownDims = baseSrc && imageDims.get(baseSrc);
-    applyStageSize(stage, knownDims || FALLBACK_DIMS);
+    applyStageSize(stage, knownDims || FALLBACK_DIMS, widthFraction, heightFraction);
     const base = imgOrPlaceholder(baseSrc);
     if (base.tagName === 'IMG') {
       if (fadeBase) base.classList.add('faded');
@@ -540,7 +669,7 @@
           if (base.naturalWidth && base.naturalHeight) {
             const dims = { w: base.naturalWidth, h: base.naturalHeight };
             imageDims.set(baseSrc, dims);
-            applyStageSize(stage, dims);
+            applyStageSize(stage, dims, widthFraction, heightFraction);
           }
         };
       }
@@ -556,6 +685,25 @@
       stage.appendChild(overlayImg);
     });
     return stage;
+  }
+
+  // Builds one side of a reading-pair frame from its slot spec — a plain
+  // mascot image, a mascot-over-faded-picture composite (same look as the
+  // hiding-recall screens), or a real Hebrew letter cluster rendered as text.
+  // Appends the arrow icon underneath when this is the tap's active side.
+  function buildReadingSlot(spec, isActive) {
+    const slot = el('div', 'reading-slot');
+    if (spec.type === 'text') {
+      slot.appendChild(el('p', 'hebrew-text', spec.text));
+    } else if (spec.type === 'composite') {
+      slot.appendChild(buildCompositeStage(spec.base, [spec.overlay], true, undefined, undefined, PAIR_WIDTH_FRACTION, PAIR_HEIGHT_FRACTION));
+    } else {
+      slot.appendChild(buildCompositeStage(spec.src, [], false, undefined, undefined, PAIR_WIDTH_FRACTION, PAIR_HEIGHT_FRACTION));
+    }
+    if (isActive) {
+      slot.appendChild(imgOrPlaceholder(ASSETS.arrow_img, 'reading-arrow'));
+    }
+    return slot;
   }
 
   function renderFrame(frame) {
@@ -592,6 +740,31 @@
         // Plain blank screen + "Yay!" — no mascot/confetti/decoration in Pass 1.
         // Pass 2 attaches celebration effects to this same frame kind.
         contentEl.appendChild(el('p', 'big-text', frame.text));
+        break;
+      }
+      case 'reading-pair': {
+        // No on-screen text here either — same narration-lives-live rule as
+        // the teaching-cycle frames above. frame.text is reference-only.
+        const wrap = el('div', 'reading-pair');
+        wrap.appendChild(buildReadingSlot(frame.sa, frame.active === 'sa'));
+        wrap.appendChild(buildReadingSlot(frame.ba, frame.active === 'ba'));
+        contentEl.appendChild(wrap);
+        break;
+      }
+      case 'saba-reveal': {
+        // Content in its own right (like 'yay'), not narration — the word
+        // itself renders. Illustration alongside; swap frame.img for a clip
+        // later without touching this case. Appended text-then-image so that
+        // .reading-pair's row-reverse still lands the word on the right and
+        // the illustration on the left, matching the reference slide.
+        const wrap = el('div', 'reading-pair');
+        const textSlot = el('div', 'reading-slot');
+        textSlot.appendChild(el('p', 'hebrew-text', frame.text));
+        const imgSlot = el('div', 'reading-slot');
+        imgSlot.appendChild(imgOrPlaceholder(frame.img, 'saba-illustration'));
+        wrap.appendChild(textSlot);
+        wrap.appendChild(imgSlot);
+        contentEl.appendChild(wrap);
         break;
       }
       default: {
