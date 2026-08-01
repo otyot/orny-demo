@@ -657,6 +657,44 @@
     else imgEl.addEventListener('load', tryApply);
   }
 
+  // COMPOSITE ALIGNMENT — a plain mascot is now guaranteed centered in its
+  // box (the crop above is built symmetric around its own ink), but a
+  // composite's BASE PICTURE is left exactly as drawn, unshifted — measured
+  // directly, sa-sal-i.png's ink center sits at (49.7%, 49.9%) of its own
+  // canvas (essentially centered already) while ba-bakbuk-i.png's sits at
+  // (51%, 59.1%) — nearly 10 points lower. Same box, same top-aligned row,
+  // but two different internal registrations, so Ba's bottle visibly hangs
+  // lower than Sa's hoop even though neither box has moved — that reads as
+  // "not on the same row" even though, technically, the boxes are.
+  // Fixed by translating the WHOLE composite stage (base + overlay
+  // together, as one rigid unit — never scaled, and the overlay never moves
+  // relative to the base) so its own ink lands at the box's center, exactly
+  // mirroring what the mascot crop already does for a plain character. This
+  // only touches where the pair sits inside its box, never the base/overlay
+  // relationship, so the "character hides inside its own faded picture"
+  // registration from the hiding-recall phase is completely unaffected.
+  const compositeRecenterCache = new Map(); // src -> {dx, dy} percent offsets
+  function getCompositeRecenterOffset(imgEl, src) {
+    if (compositeRecenterCache.has(src)) return compositeRecenterCache.get(src);
+    const bbox = computeInkBBoxPixels(imgEl);
+    if (!bbox) return null;
+    const w = imgEl.naturalWidth, h = imgEl.naturalHeight;
+    const offset = {
+      dx: 50 - ((bbox.minX + bbox.maxX) / 2 / w) * 100,
+      dy: 50 - ((bbox.minY + bbox.maxY) / 2 / h) * 100,
+    };
+    compositeRecenterCache.set(src, offset);
+    return offset;
+  }
+  function applyCompositeRecenter(stage, baseImgEl, src) {
+    function tryApply() {
+      const offset = getCompositeRecenterOffset(baseImgEl, src);
+      if (offset) stage.style.transform = `translate(${offset.dx.toFixed(2)}%, ${offset.dy.toFixed(2)}%)`;
+    }
+    if (baseImgEl.complete && baseImgEl.naturalWidth) tryApply();
+    else baseImgEl.addEventListener('load', tryApply);
+  }
+
   // Pulls every image src a frame references, whatever shape that frame is —
   // including reading-pair's per-side slot specs (character/composite slots
   // carry image srcs, text slots don't) and the arrow icon, which is always
@@ -730,9 +768,14 @@
   const STAGE_HEIGHT_FRACTION = 0.68;
   // Same idea, but sized for a reading-pair frame where TWO stages share the
   // row side by side — each one gets a narrower budget so the pair fits
-  // together without overlapping.
-  const PAIR_WIDTH_FRACTION = 0.36;
-  const PAIR_HEIGHT_FRACTION = 0.58;
+  // together without overlapping. Deliberately smaller than a solo stage:
+  // Yahav's own single-character slides run a mascot at roughly a third of
+  // the slide's real estate, and showing TWO of them side by side (our own
+  // adaptation, not something his single-character method ever does) needs
+  // to land well under that per side to read as "a pair," not "two
+  // full-size scenes crammed together."
+  const PAIR_WIDTH_FRACTION = 0.24;
+  const PAIR_HEIGHT_FRACTION = 0.38;
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
@@ -824,7 +867,14 @@
     if (spec.type === 'text') {
       slot.appendChild(el('p', 'hebrew-text', spec.text));
     } else if (spec.type === 'composite') {
-      slot.appendChild(buildCompositeStage(spec.base, [spec.overlay], true, undefined, undefined, PAIR_WIDTH_FRACTION, PAIR_HEIGHT_FRACTION));
+      const stage = buildCompositeStage(spec.base, [spec.overlay], true, undefined, undefined, PAIR_WIDTH_FRACTION, PAIR_HEIGHT_FRACTION);
+      // Recenter the composite AS A WHOLE (base + overlay together, never
+      // scaled, never moved relative to each other) so its own ink lands at
+      // the box's center — see applyCompositeRecenter above for why this is
+      // needed even though the box itself never moves.
+      const baseImg = stage.querySelector('img');
+      if (baseImg) applyCompositeRecenter(stage, baseImg, spec.base);
+      slot.appendChild(stage);
     } else {
       const stage = buildCompositeStage(spec.src, [], false, undefined, undefined, PAIR_WIDTH_FRACTION, PAIR_HEIGHT_FRACTION);
       // Plain-mascot-alone only: crop to a square centered on its own ink,
