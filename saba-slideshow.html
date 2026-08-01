@@ -542,24 +542,37 @@
   const imageDims = new Map();
 
   // Per-src cache of where an image's actual visible (non-transparent) ink
-  // sits within its own canvas, as "x%, y%" of its center point. Needed
-  // because the mascot doodles are NOT drawn in the same spot within their
-  // 700x700 canvas from one letter to the next (e.g. Sa's doodle centers
-  // around 37%/62%, Ba's around 50%/37%) — centering the raw canvas (what
-  // object-fit:contain does by default) puts them at visibly different
-  // heights when shown side by side. This only matters for a character shown
-  // ALONE (see applyInkCentering, used by buildReadingSlot's plain-character
+  // sits within its own canvas — its center point AND how much of the
+  // canvas it actually spans. Needed for two separate problems:
+  //   1. The mascot doodles are NOT drawn in the same spot within their
+  //      700x700 canvas from one letter to the next (e.g. Sa's doodle
+  //      centers around 37%/62%, Ba's around 50%/37%) — centering the raw
+  //      canvas (what object-fit:contain does by default) puts them at
+  //      visibly different heights when shown side by side.
+  //   2. Each mascot doodle only fills roughly 30% of its own canvas — the
+  //      rest is transparent margin. Sizing the BOX correctly (which was
+  //      already right) doesn't fix this: the box is invisible, so a small
+  //      doodle floating inside a big correctly-sized box still reads as
+  //      "tiny and far from its neighbor," since most of what looks like
+  //      empty space between the two mascots is really just each one's own
+  //      unfilled canvas margin, not a gap between their boxes.
+  // MASCOT_INK_FILL_FRACTION below fixes #2 by scaling each mascot up until
+  // its ink fills that fraction of its box; the translate in
+  // applyMascotNormalization fixes #1.
+  // This only matters for a character shown ALONE (see
+  // applyMascotNormalization, used by buildReadingSlot's plain-character
   // path) — a composite (character stacked on its own faded picture) must
-  // keep its original, unshifted registration, since that's what makes the
-  // character appear to "hide inside" the picture correctly; recentering
-  // either image there independently would break that alignment.
+  // keep its original, unshifted, unscaled registration, since that's what
+  // makes the character appear to "hide inside" the picture correctly;
+  // adjusting either image there independently would break that alignment.
   // Unlike the old per-element `origin` values (needed because Chrome blocks
   // canvas pixel readback for file:// images), this deck now runs over
   // https via GitHub Pages, where reading pixel data back out of a
   // same-origin canvas is allowed — so this can be detected automatically
   // instead of hand-measured per asset.
-  const inkCenters = new Map();
-  function computeInkCenterFromImage(imgEl) {
+  const MASCOT_INK_FILL_FRACTION = 0.7; // how much of its box a mascot's ink should occupy
+  const inkBounds = new Map();
+  function computeInkBoundsFromImage(imgEl) {
     try {
       const w = imgEl.naturalWidth, h = imgEl.naturalHeight;
       if (!w || !h) return null;
@@ -569,7 +582,7 @@
       ctx.drawImage(imgEl, 0, 0);
       const data = ctx.getImageData(0, 0, w, h).data;
       let minX = w, minY = h, maxX = 0, maxY = 0, found = false;
-      const step = 2; // every other pixel — plenty precise for centering, much faster
+      const step = 2; // every other pixel — plenty precise for this, much faster
       for (let y = 0; y < h; y += step) {
         for (let x = 0; x < w; x += step) {
           if (data[(y * w + x) * 4 + 3] > 10) {
@@ -582,27 +595,39 @@
         }
       }
       if (!found) return null;
-      return { cx: ((minX + maxX) / 2 / w) * 100, cy: ((minY + maxY) / 2 / h) * 100 };
+      return {
+        cx: ((minX + maxX) / 2 / w) * 100,
+        cy: ((minY + maxY) / 2 / h) * 100,
+        spanXpct: ((maxX - minX) / w) * 100,
+        spanYpct: ((maxY - minY) / h) * 100,
+      };
     } catch (e) {
-      return null; // canvas blocked for some reason — falls back to uncorrected centering
+      return null; // canvas blocked for some reason — falls back to unadjusted rendering
     }
   }
-  // Shifts an already-in-the-DOM <img> so its detected ink-center lands at
-  // the exact center of its own box (50%, 50%) instead of wherever it
-  // happens to sit in the raw canvas. Percentage transforms are relative to
-  // the element's own box, and since every stage is sized to the image's
-  // exact aspect ratio (see applyStageSize), object-fit:contain never
-  // letterboxes it — so the raw pixel-percentages line up with the
-  // rendered box with no extra math needed.
-  function applyInkCentering(imgEl, src) {
+  // Recenters AND rescales an already-in-the-DOM <img> so its detected ink
+  // fills MASCOT_INK_FILL_FRACTION of its own box, centered — instead of
+  // sitting wherever (and at whatever size) it happens to be drawn in the
+  // raw canvas. Percentage transforms are relative to the element's own box,
+  // and since every stage is sized to the image's exact aspect ratio (see
+  // applyStageSize), object-fit:contain never letterboxes it — so the raw
+  // pixel-percentages line up with the rendered box with no extra math.
+  // Scale is applied first (around the default 50%/50% origin), THEN
+  // translate — so the translate distance has to account for the scale
+  // already stretching the ink's offset from center, hence `* scale` below.
+  function applyMascotNormalization(imgEl, src) {
     function tryApply() {
-      let center = inkCenters.get(src);
-      if (!center) {
-        center = computeInkCenterFromImage(imgEl);
-        if (center) inkCenters.set(src, center);
+      let bounds = inkBounds.get(src);
+      if (!bounds) {
+        bounds = computeInkBoundsFromImage(imgEl);
+        if (bounds) inkBounds.set(src, bounds);
       }
-      if (center) {
-        imgEl.style.transform = `translate(${(50 - center.cx).toFixed(2)}%, ${(50 - center.cy).toFixed(2)}%)`;
+      if (bounds) {
+        const longestSpan = Math.max(bounds.spanXpct, bounds.spanYpct) || 1;
+        const scale = Math.min(Math.max((MASCOT_INK_FILL_FRACTION * 100) / longestSpan, 1), 3);
+        const dx = (50 - bounds.cx) * scale;
+        const dy = (50 - bounds.cy) * scale;
+        imgEl.style.transform = `translate(${dx.toFixed(2)}%, ${dy.toFixed(2)}%) scale(${scale.toFixed(3)})`;
       }
     }
     if (imgEl.complete && imgEl.naturalWidth) tryApply();
@@ -634,8 +659,8 @@
           const preloadEl = new Image();
           preloadEl.onload = () => {
             imageDims.set(src, { w: preloadEl.naturalWidth, h: preloadEl.naturalHeight });
-            const center = computeInkCenterFromImage(preloadEl);
-            if (center) inkCenters.set(src, center);
+            const bounds = computeInkBoundsFromImage(preloadEl);
+            if (bounds) inkBounds.set(src, bounds);
           };
           preloadEl.src = src;
         }
@@ -781,13 +806,14 @@
       slot.appendChild(buildCompositeStage(spec.base, [spec.overlay], true, undefined, undefined, PAIR_WIDTH_FRACTION, PAIR_HEIGHT_FRACTION));
     } else {
       const stage = buildCompositeStage(spec.src, [], false, undefined, undefined, PAIR_WIDTH_FRACTION, PAIR_HEIGHT_FRACTION);
-      // Plain-mascot-alone only: recenter on detected ink so Sa and Ba (drawn
-      // in different spots within their own canvases) land on the same
-      // visual row. Never applied when a picture is stacked underneath (the
-      // 'composite' branch above) — that alignment must stay exactly as
-      // registered, unshifted.
+      // Plain-mascot-alone only: recenter AND rescale on detected ink so Sa
+      // and Ba (drawn in different spots, at different sizes, within their
+      // own canvases) land on the same visual row at a consistent size.
+      // Never applied when a picture is stacked underneath (the 'composite'
+      // branch above) — that alignment must stay exactly as registered,
+      // unshifted, unscaled.
       const charImg = stage.querySelector('img');
-      if (charImg) applyInkCentering(charImg, spec.src);
+      if (charImg) applyMascotNormalization(charImg, spec.src);
       slot.appendChild(stage);
     }
     slot.appendChild(imgOrPlaceholder(ASSETS.arrow_img, 'reading-arrow' + (isActive ? '' : ' reading-arrow--hidden')));
