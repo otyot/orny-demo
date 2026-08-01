@@ -580,7 +580,13 @@
   // Pages, where reading pixel data back out of a same-origin canvas is
   // allowed, so this crop can be computed automatically instead of
   // hand-tuned per asset.
-  const MASCOT_INK_FILL_FRACTION = 0.85; // how much of the new square a mascot's ink should occupy
+  // Measured directly off the actual picture assets: the "picture" half of a
+  // composite (sa-sal-i.png, ba-bakbuk-i.png) has its own ink spanning
+  // ~76-80% of its 700x700 canvas — that's the real target to match, not a
+  // guess. (0.85, tried first, overshot past even the composite's own fill
+  // and made plain mascots look BIGGER than their composites — the opposite
+  // of consistent.)
+  const MASCOT_INK_FILL_FRACTION = 0.78; // how much of the new square a mascot's ink should occupy
   const mascotCropCache = new Map(); // src -> cropped square data URL
   function computeInkBBoxPixels(imgEl) {
     try {
