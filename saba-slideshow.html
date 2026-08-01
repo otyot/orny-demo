@@ -107,7 +107,7 @@
     flex-direction: row-reverse;
     align-items: flex-start;
     justify-content: center;
-    gap: 8vw;
+    gap: 4vw;
     width: 100%;
   }
   .reading-slot {
@@ -116,11 +116,18 @@
     align-items: center;
     gap: 16px;
   }
+  /* The arrow spot is ALWAYS present in the layout (just invisible when this
+     side isn't active) so a slot's total height never changes between taps —
+     that's what keeps the mascots/letters themselves from visibly shifting
+     position when the arrow appears or disappears elsewhere on the frame. */
   .reading-arrow {
-    width: min(14vw, 100px);
+    width: min(10vw, 80px);
     height: auto;
     object-fit: contain;
     display: block;
+  }
+  .reading-arrow--hidden {
+    visibility: hidden;
   }
   .hebrew-text {
     font-size: clamp(48px, 10vw, 110px);
@@ -535,7 +542,8 @@
   const imageDims = new Map();
   // Pulls every image src a frame references, whatever shape that frame is —
   // including reading-pair's per-side slot specs (character/composite slots
-  // carry image srcs, text slots don't) and its arrow icon when a side is active.
+  // carry image srcs, text slots don't) and the arrow icon, which is always
+  // in the DOM for every reading-pair frame (just hidden when inactive).
   function collectFrameSrcs(f) {
     const srcs = [].concat(f.img || [], f.imgs || []);
     if (f.kind === 'reading-pair') {
@@ -544,7 +552,7 @@
         if (slot.type === 'composite') srcs.push(slot.base, slot.overlay);
         else if (slot.type === 'character') srcs.push(slot.src);
       });
-      if (f.active) srcs.push(ASSETS.arrow_img);
+      srcs.push(ASSETS.arrow_img);
     }
     return srcs.filter(Boolean);
   }
@@ -606,8 +614,8 @@
   // Same idea, but sized for a reading-pair frame where TWO stages share the
   // row side by side — each one gets a narrower budget so the pair fits
   // together without overlapping.
-  const PAIR_WIDTH_FRACTION = 0.32;
-  const PAIR_HEIGHT_FRACTION = 0.5;
+  const PAIR_WIDTH_FRACTION = 0.36;
+  const PAIR_HEIGHT_FRACTION = 0.58;
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
@@ -690,7 +698,10 @@
   // Builds one side of a reading-pair frame from its slot spec — a plain
   // mascot image, a mascot-over-faded-picture composite (same look as the
   // hiding-recall screens), or a real Hebrew letter cluster rendered as text.
-  // Appends the arrow icon underneath when this is the tap's active side.
+  // The arrow spot is ALWAYS appended (see .reading-arrow--hidden in the CSS)
+  // so a slot's total height is identical whether or not it's active this
+  // tap — that's what keeps the mascot/letter itself locked in place instead
+  // of the whole pair shifting up/down when the arrow appears elsewhere.
   function buildReadingSlot(spec, isActive) {
     const slot = el('div', 'reading-slot');
     if (spec.type === 'text') {
@@ -700,9 +711,7 @@
     } else {
       slot.appendChild(buildCompositeStage(spec.src, [], false, undefined, undefined, PAIR_WIDTH_FRACTION, PAIR_HEIGHT_FRACTION));
     }
-    if (isActive) {
-      slot.appendChild(imgOrPlaceholder(ASSETS.arrow_img, 'reading-arrow'));
-    }
+    slot.appendChild(imgOrPlaceholder(ASSETS.arrow_img, 'reading-arrow' + (isActive ? '' : ' reading-arrow--hidden')));
     return slot;
   }
 
