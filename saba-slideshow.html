@@ -51,12 +51,6 @@
     color: var(--muted);
     margin: 0;
   }
-  .hebrew-text {
-    font-size: clamp(48px, 12vw, 120px);
-    font-weight: 700;
-    direction: rtl;
-    margin: 0;
-  }
   .char-wrap img, .picture-wrap img {
     max-width: 92vw;
     max-height: 80vh;
@@ -90,13 +84,6 @@
     transform-origin: center;
     animation: popIn 0.4s ease-out;
   }
-  .two-up {
-    display: flex;
-    gap: 32px;
-    align-items: flex-end;
-    justify-content: center;
-  }
-  .two-up img { max-width: 34vw; max-height: 40vh; object-fit: contain; }
   .placeholder {
     display: flex; align-items: center; justify-content: center;
     width: min(70vw, 480px);
@@ -223,7 +210,6 @@
     sal_picture:    'assets/sa-sal-i.png',
     ba_character:   'assets/ba-bakbuk-c.png',
     bakbuk_picture: 'assets/ba-bakbuk-i.png',
-    saba_word_img:  '', // optional: image of סַבָּא with nikkud; leave '' to use text instead
   };
 
   // ---------------------------------------------------------------------
@@ -281,8 +267,6 @@
   const MOMENTS = {
     onCorrectAnswerConfirmed(frame) {},
     onCycleComplete(letterId) {},
-    onFinalWordRevealed() {},
-    onCelebration() {},
   };
 
   // =========================================================================
@@ -422,65 +406,11 @@
     return frames;
   }
 
-  function buildCombine() {
-    return [
-      {
-        id: 'combine-both',
-        kind: 'two-characters',
-        imgs: [LETTERS.sa.characterImg, LETTERS.ba.characterImg],
-        text: 'Who’s this? What’s his name?',
-      },
-      {
-        id: 'combine-spell',
-        kind: 'two-characters',
-        imgs: [LETTERS.sa.characterImg, LETTERS.ba.characterImg],
-        text: 'Sa… Ba…',
-      },
-      {
-        id: 'combine-blend',
-        kind: 'two-characters',
-        imgs: [LETTERS.sa.characterImg, LETTERS.ba.characterImg],
-        text: 'Sa-ba!',
-      },
-    ];
-  }
-
-  function buildWordReveal() {
-    return [
-      {
-        id: 'word-reveal',
-        kind: 'word-reveal',
-        img: ASSETS.saba_word_img,
-        text: 'סַבָּא', // סַבָּא
-        moment: 'onFinalWordRevealed',
-      },
-      {
-        id: 'translate',
-        kind: 'translate',
-        text: 'Saba in Hebrew is... Grandfather!',
-      },
-    ];
-  }
-
-  function buildCelebration() {
-    return [
-      {
-        id: 'celebration',
-        kind: 'yay',
-        text: 'Yay!',
-        moment: 'onCelebration',
-      },
-    ];
-  }
-
   function buildDeck() {
     return [
       ...buildCycleFrames(LETTERS.sa),
       ...buildCycleFrames(LETTERS.ba),
       ...buildHidingRecall(),
-      ...buildCombine(),
-      ...buildWordReveal(),
-      ...buildCelebration(),
     ];
   }
 
@@ -661,28 +591,6 @@
       case 'yay': {
         // Plain blank screen + "Yay!" — no mascot/confetti/decoration in Pass 1.
         // Pass 2 attaches celebration effects to this same frame kind.
-        contentEl.appendChild(el('p', 'big-text', frame.text));
-        break;
-      }
-      case 'two-characters': {
-        const wrap = el('div', 'two-up');
-        wrap.appendChild(imgOrPlaceholder(frame.imgs[0], 'small'));
-        wrap.appendChild(imgOrPlaceholder(frame.imgs[1], 'small'));
-        contentEl.appendChild(wrap);
-        contentEl.appendChild(el('p', 'big-text', frame.text));
-        break;
-      }
-      case 'word-reveal': {
-        if (frame.img) {
-          const wrap = el('div', 'picture-wrap');
-          wrap.appendChild(imgOrPlaceholder(frame.img));
-          contentEl.appendChild(wrap);
-        } else {
-          contentEl.appendChild(el('p', 'hebrew-text', frame.text));
-        }
-        break;
-      }
-      case 'translate': {
         contentEl.appendChild(el('p', 'big-text', frame.text));
         break;
       }
