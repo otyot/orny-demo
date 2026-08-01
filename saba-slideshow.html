@@ -394,24 +394,26 @@
     return frames;
   }
 
-  function buildCrossReview() {
+  // Phase 2 — "where's it hiding?" reinforcement, done AFTER both letters'
+  // full teaching cycles are complete (Sa fully taught, then Ba fully
+  // taught, then this). For each letter: the character sits at full
+  // opacity over its picture faded to 20% (same look/asset/fade as the
+  // in-cycle re-drill — no new images needed), Noam asks live where it
+  // hides, then one tap reveals the plain full-opacity picture as the
+  // answer. No element overlays here — just the hiding-spot recall.
+  function buildHidingRecall() {
     const frames = [];
     [LETTERS.sa, LETTERS.ba].forEach((L) => {
       frames.push({
-        id: `review-${L.id}-character`,
-        kind: 'solo-character',
-        img: L.characterImg,
-        text: `${L.name}!`,
+        id: `${L.id}-hiding-prompt`,
+        kind: 'anchor',
+        imgs: [L.pictureImg, L.characterImg],
+        fadeBase: true,
+        text: `Where does ${L.name} like to hide?`,
       });
       frames.push({
-        id: `review-${L.id}-recall-prompt`,
-        kind: 'recall-prompt',
-        img: L.characterImg,
-        text: `${L.name} likes hiding in the…?`,
-      });
-      frames.push({
-        id: `review-${L.id}-recall-answer`,
-        kind: 'recall-answer',
+        id: `${L.id}-hiding-answer`,
+        kind: 'picture-reveal',
         img: L.pictureImg,
         text: `${L.pictureName}!`,
         moment: 'onCorrectAnswerConfirmed',
@@ -475,7 +477,7 @@
     return [
       ...buildCycleFrames(LETTERS.sa),
       ...buildCycleFrames(LETTERS.ba),
-      ...buildCrossReview(),
+      ...buildHidingRecall(),
       ...buildCombine(),
       ...buildWordReveal(),
       ...buildCelebration(),
