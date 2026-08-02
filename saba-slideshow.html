@@ -351,8 +351,16 @@
     // Not a taught letter — a minimal entry so the silent Aleph can reuse
     // the same letterId-keyed measurement caches (getLetterWindow/
     // letterMetrics) as sa/ba below. Only .letterImg is ever read for it.
+    // hasNiqqud: false is documentation, not (yet) branched on in code —
+    // it flags that this letter's vertical position is pinned to its
+    // companion letter's canvas origin (see buildReadingStage) rather
+    // than the usual kamatz-ink-bottom baseline, because it has no niqqud
+    // of its own to zero against. Future silent letters (He, etc. — per
+    // Noam, many Hebrew words end in a silent letter shown without
+    // niqqud) should follow the same pattern.
     aleph: {
       id: 'aleph',
+      hasNiqqud: false,
       letterImg: ASSETS.aleph_letter_img,
     },
   };
@@ -1402,13 +1410,13 @@
       const widthBudget = rect.width * READING_LETTER_STAGE_WIDTH_FRACTION;
       const heightBudget = rect.height * READING_LETTER_STAGE_HEIGHT_FRACTION;
 
-      // Height bound: all three letters' ink bottoms share a baseline, so
+      // Height bound: Sa/Ba's ink bottoms share the kamatz baseline, so
       // the union's height is (largest rise above it) + (largest drop
-      // below it, i.e. however far each canvas extends past its own
-      // ink-bottom). Aleph has no niqqud of its own, so it's unlikely to
-      // be the tallest/lowest, but it's included for correctness.
-      const upPerS = Math.max(lSa.bottom - lSa.top, lBa.bottom - lBa.top, lAleph.bottom - lAleph.top);
-      const downPerS = Math.max(lSa.size - lSa.bottom, lBa.size - lBa.bottom, lAleph.size - lAleph.bottom);
+      // below it). Aleph is deliberately left out of this — see the
+      // vertical-placement note below for why it doesn't use this
+      // baseline at all.
+      const upPerS = Math.max(lSa.bottom - lSa.top, lBa.bottom - lBa.top);
+      const downPerS = Math.max(lSa.size - lSa.bottom, lBa.size - lBa.bottom);
       let S = heightBudget / (upPerS + downPerS);
 
       // Width bound (exact): same edge-pair approach as the mascot
@@ -1454,14 +1462,27 @@
       saLeft += shiftX;
       alephLeft += shiftX;
 
-      // Vertical: letters share baseline y0 (their ink bottoms), the union
-      // of the boxes is centered on screen.
+      // Vertical: Sa/Ba share baseline y0 (their ink bottoms — the kamatz
+      // mark), the union of the two boxes is centered on screen.
       const up = upPerS * S;
       const down = downPerS * S;
       const y0 = (rect.height - (up + down)) / 2 + up;
       saTop = y0 - lSa.bottom * S;
       baTop = y0 - lBa.bottom * S;
-      alephTop = y0 - lAleph.bottom * S;
+
+      // Aleph is silent and carries no niqqud, so it has no kamatz to
+      // zero against — per Noam: "align all those [no-niqqud] letter
+      // images to their baseline... the way I built it in Photoshop, it
+      // will work." Every letter file — niqqud or not — is exported from
+      // the same Photoshop document at the same canvas size, so each
+      // canvas's own (0,0) origin already sits on the same real baseline
+      // grid Noam draws every glyph against. That means no ink-derived
+      // vertical adjustment is needed at all here: Aleph's canvas simply
+      // shares Ba's canvas origin (the letter it stands beside), scaled
+      // by the same S. This is why Aleph was left out of the upPerS/
+      // downPerS budget above — its height is whatever its own canvas
+      // gives it once pinned to Ba's origin, not a shared-baseline term.
+      alephTop = baTop;
     } else if (isLetterFrame) {
       // Metrics not measured yet — same reasoning/pattern as the mascot
       // fallback above, using the letter-glyph windows instead. One retry
