@@ -796,6 +796,15 @@
   // overlay resolve to the SAME pair, so they share one cache entry —
   // pixel-identity between the two states is structural, not a coincidence
   // of matching math.
+  // Guards the "measurements not ready yet, re-render once they land"
+  // fallback paths in buildReadingStage below: without this, a genuinely
+  // failed measurement (e.g. a missing/broken image asset — 404, bad path)
+  // resolves its cache promise to null forever, and re-rendering on an
+  // already-resolved promise fires its .then() as an immediate microtask —
+  // with no real async gap, that becomes an infinite same-tick render loop
+  // that freezes the tab. Each frame gets exactly one retry; if metrics
+  // still aren't there after that, it just keeps the fallback layout.
+  const readingRetriedFrames = new Set(); // frame id -> already retried once
   const readingWindowCache = new Map(); // letterId -> Promise<window|null>
   function getReadingWindow(letterId) {
     if (!readingWindowCache.has(letterId)) {
@@ -1336,12 +1345,16 @@
       // warms them at boot and the reading phase is many taps in. Render
       // at the fallback layout now, and re-render this same frame once the
       // measurements land (no-op if the person has already moved on).
-      const at = index;
-      Promise.all([getReadingWindow('sa'), getReadingWindow('ba')]).then(() => {
-        if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
-          renderFrame(frames[index]);
-        }
-      });
+      // One retry only — see readingRetriedFrames above.
+      if (!readingRetriedFrames.has(frames[index].id)) {
+        readingRetriedFrames.add(frames[index].id);
+        const at = index;
+        Promise.all([getReadingWindow('sa'), getReadingWindow('ba')]).then(() => {
+          if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
+            renderFrame(frames[index]);
+          }
+        });
+      }
     } else if (isLetterFrame && lSa && lBa) {
       // Letters round: an entirely separate layout from the mascot math
       // above (own font/size/position decisions, per Noam). The shared
@@ -1403,13 +1416,17 @@
       baTop = y0 - lBa.bottom * S;
     } else if (isLetterFrame) {
       // Metrics not measured yet — same reasoning/pattern as the mascot
-      // fallback above, using the letter-glyph windows instead.
-      const at = index;
-      Promise.all([getLetterWindow('sa'), getLetterWindow('ba')]).then(() => {
-        if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
-          renderFrame(frames[index]);
-        }
-      });
+      // fallback above, using the letter-glyph windows instead. One retry
+      // only — see readingRetriedFrames above.
+      if (!readingRetriedFrames.has(frames[index].id)) {
+        readingRetriedFrames.add(frames[index].id);
+        const at = index;
+        Promise.all([getLetterWindow('sa'), getLetterWindow('ba')]).then(() => {
+          if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
+            renderFrame(frames[index]);
+          }
+        });
+      }
     }
 
     const saBox = buildReadingBox(saSpec, active === 'sa');
