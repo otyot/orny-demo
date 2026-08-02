@@ -602,12 +602,26 @@
   // states to be cropped through the exact same window (any two different
   // windows re-map the character differently — that mismatch IS the jump
   // this deck kept trading back and forth). (a) then pins down what that
-  // shared window must be: centered on the CHARACTER's own ink, sized so
-  // the ink fills the same fraction of the window for every letter. So:
+  // shared window must be: centered on the CHARACTER's own ink. And the
+  // full-picture requirement (below) then pins down its SIZE. So:
   //
-  //   window(L) = square centered on L's character-ink center,
-  //               size = charInkLongestSide / (READING_CHAR_FILL_FRACTION
-  //                                            * READING_CHAR_SCALE[L])
+  //   window(L) = square centered on L's character-ink center (cx, cy),
+  //               halfSize = max(cx, W - cx, cy, H - cy)
+  //               size = 2 * halfSize
+  //   (W × H = the letter's native canvas, read off the actual loaded
+  //   picture — i.e. the smallest square that is BOTH centered on the
+  //   character AND fully contains the entire picture canvas.)
+  //
+  // FULL PICTURE, GUARANTEED: the halfSize formula reaches from the
+  // character's ink center to the picture canvas's farthest edge, so the
+  // whole Sal/Bakbuk — Noam's memory cue, the thing the kid recognizes the
+  // character BY — is always entirely inside the window, never cropped.
+  // (An earlier version sized the window off the character's ink and a
+  // fill-fraction constant instead, which cropped the picture's edges —
+  // tuning that constant down only ever showed "more," never provably
+  // "all," because how far the picture extends past the character depends
+  // on where the character sits within its own composition. This computes
+  // the exact answer instead of guessing.)
   //
   // The plain slot crops the character through window(L). The composite
   // crops BOTH its base picture and its character overlay through the very
@@ -619,34 +633,32 @@
   // cannot change the character even in principle; the only thing a switch
   // does is add/remove the faded picture underneath it.
   //
-  // THE ONE TRADE-OFF (deliberate, and forced by (a)+(b) together): the
-  // composite's picture is now framed AROUND the character — zoomed to the
-  // character's neighborhood, edges cropped if the window is smaller than
-  // the picture — instead of shown in its own full canonical framing. You
-  // cannot have matched plain pairing AND zero-jump reveals AND full-frame
-  // pictures simultaneously; full-frame pictures is the only one of the
-  // three that isn't a hard requirement here, so it's what gives. The kid
-  // has already learned each picture thoroughly in the teaching cycle — in
-  // the reading phase the faded picture is a 20%-opacity memory cue, so a
-  // recognizable region around the hiding spot should carry it.
+  // THE PAIRING CONSEQUENCE (and where it's solved): because the window
+  // must reach the picture's farthest edge from the character, its size
+  // legitimately DIFFERS per letter — Sa and Ba sit in different spots
+  // within differently-composed pictures. A shared fixed box would
+  // therefore render the two characters at different sizes. Pairing is
+  // solved in buildReadingStage instead: each letter's BOX is sized
+  // proportionally to its own window (one shared screen-px-per-source-px
+  // scale K for both letters), so both characters render at exactly K
+  // on-screen pixels of ink — an exact computed match, even though the two
+  // boxes end up different sizes. See buildReadingStage for the math.
   //
-  // TUNING (the two knobs, both safe to change freely):
-  //   READING_CHAR_FILL_FRACTION — how much of its box a character's ink
-  //     fills, in BOTH states. Raise it -> bigger characters but a tighter
-  //     zoom on the composite's picture (less of it visible). Lower it ->
-  //     more of the picture visible behind the character, but smaller
-  //     characters. (0.78 would match the old plain-alone size exactly, at
-  //     the cost of a very tight picture crop.)
-  //   READING_CHAR_SCALE — optional per-letter nudge (multiplies the fill
-  //     fraction for that letter only) if the automatic ink-bbox match
-  //     still leaves the pair looking uneven to the eye — same spirit as
-  //     the hand-set `origin` constants on anchor elements. Because it's
-  //     baked into that letter's ONE shared window, it scales the plain
-  //     and composite states identically and can never reintroduce a
-  //     reveal jump.
-  //   (If everything in the reading phase feels too small overall, that's
-  //   the box budget, not the crop — bump READING_BOX_WIDTH_FRACTION /
-  //   READING_BOX_HEIGHT_FRACTION below instead.)
+  // TUNING (all safe to change freely — none can crop a picture or
+  // reintroduce a reveal jump):
+  //   READING_STAGE_WIDTH_FRACTION / READING_STAGE_HEIGHT_FRACTION (further
+  //     down, by the other layout constants) — how much of the screen the
+  //     mascot pair may use. These are THE size knobs now: raising them
+  //     makes everything (characters + full pictures) proportionally
+  //     bigger.
+  //   READING_CHAR_SCALE — optional per-letter nudge (scales that letter's
+  //     whole box, i.e. its character AND its full picture together) if the
+  //     automatic ink-bbox match still leaves the pair looking uneven to
+  //     the eye — same spirit as the hand-set `origin` constants on anchor
+  //     elements. Because it scales the plain and composite states
+  //     identically, it can never reintroduce a reveal jump, and because
+  //     it scales the box rather than the crop, it can never cut off the
+  //     picture.
   //
   // Bonus fix that falls out for free: the pulse animation scales about
   // the box center. Under the old picture-anchored composite window, the
@@ -657,10 +669,14 @@
   // This deck runs over https via GitHub Pages, where reading pixel data
   // back out of a same-origin canvas is allowed, so the ink bounds can be
   // detected automatically instead of hand-tuned per asset.
-  const READING_CHAR_FILL_FRACTION = 0.6; // character ink : reading-box size, both states
   const READING_CHAR_SCALE = { sa: 1, ba: 1 }; // per-letter hand nudge, edit freely
-  function readingFillFor(letterId) {
-    return READING_CHAR_FILL_FRACTION * (READING_CHAR_SCALE[letterId] || 1);
+  // letterId -> windowSize / charInkLongestSide, measured off the real
+  // pixels when that letter's window is computed (see getReadingWindow).
+  // buildReadingStage reads this synchronously to size each letter's box.
+  const readingBoxRatioCache = new Map();
+  function readingBoxRatio(letterId) {
+    const r = readingBoxRatioCache.get(letterId);
+    return r ? r * (READING_CHAR_SCALE[letterId] || 1) : null;
   }
   function computeInkBBoxPixels(imgEl) {
     try {
@@ -698,21 +714,6 @@
       img.src = src;
     });
   }
-  // Computes the crop window (center + square size) from a REFERENCE
-  // image's own ink bounds, sized so that ink fills `fillFraction` of the
-  // resulting square. Whatever image is later cropped through this same
-  // window lands in the exact same coordinate space as the reference.
-  function computeCropWindow(referenceImg, fillFraction) {
-    const bbox = computeInkBBoxPixels(referenceImg);
-    if (!bbox) return null;
-    const bboxW = bbox.maxX - bbox.minX;
-    const bboxH = bbox.maxY - bbox.minY;
-    const cx = (bbox.minX + bbox.maxX) / 2;
-    const cy = (bbox.minY + bbox.maxY) / 2;
-    const longest = Math.max(bboxW, bboxH) || 1;
-    const canvasSize = Math.max(1, Math.round(longest / fillFraction));
-    return { cx, cy, canvasSize };
-  }
   function cropImageToWindow(img, win) {
     if (!img || !win) return null;
     const canvas = document.createElement('canvas');
@@ -730,24 +731,48 @@
     }
   }
 
-  // CROP CACHES — one window per (character, fill) pair, one cropped data
-  // URL per (character, fill, image) triple. A letter's plain character and
-  // its composite overlay resolve to the SAME triple, so they share one
-  // cache entry — pixel-identity between the two states is structural, not
-  // a coincidence of matching math.
-  const readingWindowCache = new Map(); // "charSrc|fill" -> Promise<window|null>
-  function getReadingWindow(charSrc, fill) {
-    const key = `${charSrc}|${fill}`;
-    if (!readingWindowCache.has(key)) {
-      readingWindowCache.set(key, loadImageForCrop(charSrc).then((img) => (img ? computeCropWindow(img, fill) : null)));
+  // CROP CACHES — ONE window per LETTER, one cropped data URL per
+  // (letter, image) pair. A letter's plain character and its composite
+  // overlay resolve to the SAME pair, so they share one cache entry —
+  // pixel-identity between the two states is structural, not a coincidence
+  // of matching math.
+  const readingWindowCache = new Map(); // letterId -> Promise<window|null>
+  function getReadingWindow(letterId) {
+    if (!readingWindowCache.has(letterId)) {
+      const L = LETTERS[letterId];
+      readingWindowCache.set(letterId, Promise.all([
+        loadImageForCrop(L.characterImg),
+        loadImageForCrop(L.pictureImg),
+      ]).then(([charImg, picImg]) => {
+        if (!charImg) return null;
+        const bbox = computeInkBBoxPixels(charImg);
+        if (!bbox) return null;
+        const cx = (bbox.minX + bbox.maxX) / 2;
+        const cy = (bbox.minY + bbox.maxY) / 2;
+        const charInk = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY) || 1;
+        // Full-picture guarantee (see the READING WINDOW comment): the
+        // half-size reaches from the character's ink center to the
+        // FARTHEST edge of the picture's own canvas, so the whole W×H
+        // canvas fits inside this (character-centered) window. Canvas dims
+        // are read off the actually-loaded picture, falling back to the
+        // character's canvas (same coordinate space per the project's
+        // asset convention) if the picture file is missing.
+        const ref = picImg || charImg;
+        const W = ref.naturalWidth, H = ref.naturalHeight;
+        const half = Math.max(cx, W - cx, cy, H - cy);
+        const canvasSize = Math.max(1, Math.ceil(2 * half));
+        // Publish the box-sizing ratio for buildReadingStage (sync read).
+        readingBoxRatioCache.set(letterId, canvasSize / charInk);
+        return { cx, cy, canvasSize };
+      }));
     }
-    return readingWindowCache.get(key);
+    return readingWindowCache.get(letterId);
   }
-  const croppedImageCache = new Map(); // "charSrc|fill|imgSrc" -> Promise<dataURL|null>
-  function getReadingCroppedImage(charSrc, fill, imgSrc) {
-    const key = `${charSrc}|${fill}|${imgSrc}`;
+  const croppedImageCache = new Map(); // "letterId|imgSrc" -> Promise<dataURL|null>
+  function getReadingCroppedImage(letterId, imgSrc) {
+    const key = `${letterId}|${imgSrc}`;
     if (!croppedImageCache.has(key)) {
-      croppedImageCache.set(key, Promise.all([getReadingWindow(charSrc, fill), loadImageForCrop(imgSrc)])
+      croppedImageCache.set(key, Promise.all([getReadingWindow(letterId), loadImageForCrop(imgSrc)])
         .then(([win, img]) => cropImageToWindow(img, win)));
     }
     return croppedImageCache.get(key);
@@ -758,8 +783,7 @@
   // (missing file, blocked canvas), falls back to the raw uncropped src so
   // the slot is never left blank.
   function applyReadingCrop(imgEl, spec, imgSrc) {
-    const charSrc = spec.type === 'composite' ? spec.overlay : spec.src;
-    getReadingCroppedImage(charSrc, readingFillFor(spec.letter), imgSrc).then((dataUrl) => {
+    getReadingCroppedImage(spec.letter, imgSrc).then((dataUrl) => {
       imgEl.src = dataUrl || imgSrc;
     });
   }
@@ -808,10 +832,10 @@
       [f.sa, f.ba].forEach((spec) => {
         if (!spec) return;
         if (spec.type === 'composite') {
-          getReadingCroppedImage(spec.overlay, readingFillFor(spec.letter), spec.base);
-          getReadingCroppedImage(spec.overlay, readingFillFor(spec.letter), spec.overlay);
+          getReadingCroppedImage(spec.letter, spec.base);
+          getReadingCroppedImage(spec.letter, spec.overlay);
         } else if (spec.type === 'character') {
-          getReadingCroppedImage(spec.src, readingFillFor(spec.letter), spec.src);
+          getReadingCroppedImage(spec.letter, spec.src);
         }
       });
     });
@@ -856,16 +880,25 @@
   // to shrink everything, up to grow it — this is the one place to tune it.
   const STAGE_WIDTH_FRACTION = 0.62;
   const STAGE_HEIGHT_FRACTION = 0.68;
-  // Sizing budget for each mascot box in a reading-pair frame (see
-  // buildReadingStage below). Deliberately smaller than a solo stage:
-  // Yahav's own single-character slides run a mascot at roughly a third of
-  // the slide's real estate, and showing TWO of them side by side (our own
-  // adaptation, not something his single-character method ever does) needs
-  // to land well under that per side to read as "a pair," not "two
-  // full-size scenes crammed together."
+  // Reading-pair sizing budgets (see buildReadingStage below).
+  // MASCOT rounds: each letter's box is computed from its own full-picture
+  // crop window and scaled as large as the two STAGE budgets below allow —
+  // these are THE size knobs for the mascot pair now. Height runs high on
+  // purpose: Noam pointed out the old row sat vertically centered with big
+  // empty bands above and below it, and asked for the full pictures to
+  // grow into that space (basket extending up, bottle extending down)
+  // instead of the characters shrinking to keep the pictures whole.
+  const READING_STAGE_WIDTH_FRACTION = 0.92;  // both boxes + gap, of content width
+  const READING_STAGE_HEIGHT_FRACTION = 0.88; // tallest box, of content height
+  // LETTERS round (text slots) keeps the original compact equal boxes,
+  // sized by the two fractions below — glyphs never needed the
+  // full-picture budget, and this leaves that round pixel-identical to the
+  // previously-approved version. Also the fallback mascot-box size for the
+  // brief moment before the windows have been measured (see
+  // buildReadingStage).
   const READING_BOX_WIDTH_FRACTION = 0.2;
   const READING_BOX_HEIGHT_FRACTION = 0.32;
-  const READING_GAP_FRACTION = 0.05; // gap between the two boxes, as a fraction of contentEl's width
+  const READING_GAP_FRACTION = 0.025; // gap between the two boxes, as a fraction of contentEl's width (halved from 0.05 — Noam wants the pair sitting closer together)
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
@@ -995,8 +1028,8 @@
     // Plain-mascot-alone: cropped through the same per-letter reading
     // window the composite uses — identical pixels in both states, which
     // is exactly what makes the picture-reveal jump impossible. Pair
-    // consistency between Sa and Ba comes from every letter's window being
-    // sized to the same ink-fill fraction (see READING_CHAR_FILL_FRACTION).
+    // consistency between Sa and Ba comes from buildReadingStage sizing
+    // each letter's box off its own window at one shared display scale.
     const charImg = document.createElement('img');
     charImg.className = 'reading-box-img';
     charImg.alt = spec.src;
@@ -1033,20 +1066,72 @@
   function buildReadingStage(saSpec, baSpec, active) {
     const stage = el('div', 'reading-stage');
     const rect = contentEl.getBoundingClientRect();
-    const boxSize = Math.min(rect.width * READING_BOX_WIDTH_FRACTION, rect.height * READING_BOX_HEIGHT_FRACTION);
     const gap = rect.width * READING_GAP_FRACTION;
     const centerX = rect.width / 2;
-    const top = (rect.height - boxSize) / 2;
-    const saLeft = centerX + gap / 2;
-    const baLeft = centerX - gap / 2 - boxSize;
+    const centerY = rect.height / 2;
     stage.style.width = `${Math.round(rect.width)}px`;
     stage.style.height = `${Math.round(rect.height)}px`;
 
+    // PER-SIDE BOX SIZES. The letters round (text slots) keeps the
+    // original compact equal boxes. Mascot rounds size each letter's box
+    // off its own crop window:
+    //
+    //   boxSize(L) = K * ratio(L),  ratio(L) = windowSize(L) / charInk(L)
+    //
+    // with ONE shared K (on-screen pixels per source-ink pixel) for both
+    // letters, chosen as large as the width/height budgets allow. Sharing K
+    // is what solves the pairing tension the per-letter windows create:
+    // both characters render at exactly K screen pixels of ink — an exact
+    // computed match — while each box is exactly big enough for its own
+    // FULL picture. The boxes therefore differ in size (that's the picture
+    // compositions differing, not a bug), but the characters — the pair
+    // the kid is comparing — match precisely.
+    //
+    // A letter's box size depends only on the letter, never on whether its
+    // slot is plain or composite this frame — so nothing about a box can
+    // change across a picture-reveal tap (that would be the size-jump bug
+    // again).
+    const isTextFrame = saSpec.type === 'text' || baSpec.type === 'text';
+    const fallbackSize = Math.min(rect.width * READING_BOX_WIDTH_FRACTION, rect.height * READING_BOX_HEIGHT_FRACTION);
+    let saSize = fallbackSize;
+    let baSize = fallbackSize;
+    if (!isTextFrame) {
+      const rSa = readingBoxRatio('sa');
+      const rBa = readingBoxRatio('ba');
+      if (rSa && rBa) {
+        const widthBudget = rect.width * READING_STAGE_WIDTH_FRACTION - gap;
+        const heightBudget = rect.height * READING_STAGE_HEIGHT_FRACTION;
+        const K = Math.min(heightBudget / Math.max(rSa, rBa), widthBudget / (rSa + rBa));
+        saSize = K * rSa;
+        baSize = K * rBa;
+      } else {
+        // Windows not measured yet — realistically only reachable in the
+        // first moments after page load, since precomputeReadingPairAssets
+        // warms them at boot and the reading phase is many taps in. Render
+        // at the fallback size now, and re-render this same frame once the
+        // measurements land (no-op if the person has already moved on).
+        const at = index;
+        Promise.all([getReadingWindow('sa'), getReadingWindow('ba')]).then(() => {
+          if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
+            renderFrame(frames[index]);
+          }
+        });
+      }
+    }
+
+    // Boxes are CENTER-aligned vertically: each character's ink sits at
+    // its own window's center (the window is built centered on it), so
+    // aligning box centers puts both characters on the same horizontal
+    // line at the same height in every frame, while each full picture
+    // extends up/down/sideways around its character by however far that
+    // composition actually reaches — the basket upward, the bottle
+    // downward, exactly the "grow into the empty space" behavior Noam
+    // asked for.
     const saBox = buildReadingBox(saSpec, active === 'sa');
-    positionAbsolute(saBox, saLeft, top, boxSize, boxSize);
+    positionAbsolute(saBox, centerX + gap / 2, centerY - saSize / 2, saSize, saSize);
 
     const baBox = buildReadingBox(baSpec, active === 'ba');
-    positionAbsolute(baBox, baLeft, top, boxSize, boxSize);
+    positionAbsolute(baBox, centerX - gap / 2 - baSize, centerY - baSize / 2, baSize, baSize);
 
     stage.appendChild(saBox);
     stage.appendChild(baBox);
