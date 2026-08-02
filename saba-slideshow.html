@@ -97,11 +97,11 @@
     text-align: center;
   }
   .placeholder.small { width: 34vw; }
-  /* READING PHASE — two mascots/letters side by side, an optional arrow
-     pointing up at whichever one is "active" this tap. Always right-to-left
-     (Sa on the right, Ba on the left) to match how סַבָּא is actually
-     spelled/read in Hebrew — true for the mascot rounds AND the real-letter
-     round, not just the letters. */
+  /* READING PHASE — two mascots/letters side by side; whichever one is
+     "active" this tap pulses in place (see .reading-box--pulse) instead of
+     an arrow pointing at it. Always right-to-left (Sa on the right, Ba on
+     the left) to match how סַבָּא is actually spelled/read in Hebrew — true
+     for the mascot rounds AND the real-letter round, not just the letters. */
   .reading-pair {
     display: flex;
     flex-direction: row-reverse;
@@ -117,10 +117,10 @@
     gap: 16px;
   }
   /* Reading-pair mascot/letter round: a fixed-size absolute canvas (see
-     buildReadingStage in the JS) rather than a flex row. Sa's box, Ba's box,
-     and each arrow are positioned independently with fixed pixel
-     coordinates computed once per frame — none of them can push or resize
-     any other, matching how the reference slide deck itself is built
+     buildReadingStage in the JS) rather than a flex row. Sa's box and Ba's
+     box are positioned independently with fixed pixel coordinates computed
+     once per frame — neither can push or resize the other, matching how the
+     reference slide deck itself is built
      (separate objects, manually placed, allowed to sit wherever they need
      to). */
   .reading-stage {
@@ -133,10 +133,7 @@
        edge via .reading-box-img below (this alignment doesn't apply to it,
        since it's positioned absolutely), but the letters round's plain text
        is a normal in-flow child — centering it vertically in the same tall
-       square box as a mascot left a huge gap of empty box below the glyph
-       before the arrow even started, reading as "the arrow is much farther
-       from the letters than from the mascots" even though the arrow's own
-       offset is identical in both cases. */
+       square box as a mascot left a lot of empty box below the glyph. */
     align-items: flex-end;
     justify-content: center;
   }
@@ -147,18 +144,21 @@
     height: 100%;
     object-fit: contain;
   }
-  /* The arrow is always in the DOM (just invisible when its side isn't
-     active) — harmless now that it's absolutely positioned too, but kept
-     for a stable HUD/no-op consistency with the rest of the deck. */
-  .reading-arrow {
-    position: absolute; /* left/top set inline by JS */
-    width: min(10vw, 80px);
-    height: auto;
-    object-fit: contain;
-    display: block;
+  /* ATTENTION CUE — replaces the arrow entirely (see buildReadingStage's
+     comment for why): the active side pulses in place, twice, instead of a
+     separate arrow element appearing next to it. Nothing is added to or
+     removed from the DOM for this — it's the box itself animating — so
+     there's no separate element whose appearance/disappearance could ever
+     be mistaken for affecting its neighbor. Scales from and back to 100%
+     (never from/to 0) — a "pulse," not a "grow from nothing." */
+  @keyframes readingPulse {
+    0%, 100% { transform: scale(1); }
+    25% { transform: scale(1.28); }
+    50% { transform: scale(1); }
+    75% { transform: scale(1.28); }
   }
-  .reading-arrow--hidden {
-    visibility: hidden;
+  .reading-box--pulse {
+    animation: readingPulse 1.6s ease-in-out 1;
   }
   .hebrew-text {
     font-size: clamp(48px, 10vw, 110px);
@@ -498,7 +498,7 @@
   //                                              hiding-recall screens)
   //   { type: 'text', text }                   — a real Hebrew letter cluster
   //
-  // `active`: 'sa' | 'ba' | null — which side (if any) gets the arrow this tap.
+  // `active`: 'sa' | 'ba' | null — which side (if any) pulses this tap.
   // Every reading-pair frame renders right-to-left (Sa on the right, Ba on
   // the left, via .reading-pair's row-reverse) since סַבָּא is spelled/read
   // that way in Hebrew — true for the mascot rounds too, not just the letters.
@@ -772,8 +772,7 @@
 
   // Pulls every image src a frame references, whatever shape that frame is —
   // including reading-pair's per-side slot specs (character/composite slots
-  // carry image srcs, text slots don't) and the arrow icon, which is always
-  // in the DOM for every reading-pair frame (just hidden when inactive).
+  // carry image srcs, text slots don't).
   function collectFrameSrcs(f) {
     const srcs = [].concat(f.img || [], f.imgs || []);
     if (f.kind === 'reading-pair') {
@@ -782,7 +781,6 @@
         if (slot.type === 'composite') srcs.push(slot.base, slot.overlay);
         else if (slot.type === 'character') srcs.push(slot.src);
       });
-      srcs.push(ASSETS.arrow_img);
     }
     return srcs.filter(Boolean);
   }
@@ -879,7 +877,6 @@
   const READING_BOX_WIDTH_FRACTION = 0.2;
   const READING_BOX_HEIGHT_FRACTION = 0.32;
   const READING_GAP_FRACTION = 0.05; // gap between the two boxes, as a fraction of contentEl's width
-  const READING_ARROW_GAP = 14; // px between a box's bottom edge and its arrow
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
@@ -1005,7 +1002,7 @@
     if (charImg.tagName === 'IMG') applyMascotCrop(charImg, spec.src);
     return box;
   }
-  // Places an already-built box/arrow at fixed pixel coordinates within the
+  // Places an already-built box at fixed pixel coordinates within the
   // reading-stage — geometry only, completely independent of what's inside.
   function positionAbsolute(node, left, top, width, height) {
     node.style.position = 'absolute';
@@ -1015,16 +1012,28 @@
     if (height != null) node.style.height = `${Math.round(height)}px`;
   }
   // Builds the whole reading-pair frame as one fixed canvas: Sa's box on the
-  // right, Ba's box on the left (RTL, per Hebrew reading order), each with
-  // its own arrow directly below it — every coordinate computed once from
-  // contentEl's size and fixed constants, never from any box's content.
+  // right, Ba's box on the left (RTL, per Hebrew reading order) — every
+  // coordinate computed once from contentEl's size and fixed constants,
+  // never from any box's content.
+  //
+  // ATTENTION CUE: an experiment, replacing the arrow entirely. Every
+  // attempt to fix a residual glitch on the arrow appearing/disappearing
+  // came up short — confirmed one real bug (a composite's image sat
+  // genuinely blank for a beat the first time it was shown) and fixed it,
+  // but couldn't rule out something below what this deck's own tools can
+  // observe. Rather than keep guessing at the arrow's timing, the active
+  // side now pulses in place (twice) instead — same content, same box,
+  // same position, no separate element being added/removed/repositioned at
+  // all. If this still shows any hint of a glitch, that tells us clearly
+  // it was never about the arrow specifically — it's the plain-to-composite
+  // content swap itself. If it's smooth, we have a working version.
   function buildReadingStage(saSpec, baSpec, active) {
     const stage = el('div', 'reading-stage');
     const rect = contentEl.getBoundingClientRect();
     const boxSize = Math.min(rect.width * READING_BOX_WIDTH_FRACTION, rect.height * READING_BOX_HEIGHT_FRACTION);
     const gap = rect.width * READING_GAP_FRACTION;
     const centerX = rect.width / 2;
-    const top = (rect.height - boxSize) / 2 - 20; // slight upward bias to leave headroom for the arrow row below
+    const top = (rect.height - boxSize) / 2;
     const saLeft = centerX + gap / 2;
     const baLeft = centerX - gap / 2 - boxSize;
     stage.style.width = `${Math.round(rect.width)}px`;
@@ -1032,20 +1041,14 @@
 
     const saBox = buildReadingBox(saSpec);
     positionAbsolute(saBox, saLeft, top, boxSize, boxSize);
-    const saArrow = imgOrPlaceholder(ASSETS.arrow_img, 'reading-arrow' + (active === 'sa' ? '' : ' reading-arrow--hidden'));
-    positionAbsolute(saArrow, saLeft + boxSize / 2, top + boxSize + READING_ARROW_GAP);
-    saArrow.style.transform = 'translateX(-50%)';
+    if (active === 'sa') saBox.classList.add('reading-box--pulse');
 
     const baBox = buildReadingBox(baSpec);
     positionAbsolute(baBox, baLeft, top, boxSize, boxSize);
-    const baArrow = imgOrPlaceholder(ASSETS.arrow_img, 'reading-arrow' + (active === 'ba' ? '' : ' reading-arrow--hidden'));
-    positionAbsolute(baArrow, baLeft + boxSize / 2, top + boxSize + READING_ARROW_GAP);
-    baArrow.style.transform = 'translateX(-50%)';
+    if (active === 'ba') baBox.classList.add('reading-box--pulse');
 
     stage.appendChild(saBox);
-    stage.appendChild(saArrow);
     stage.appendChild(baBox);
-    stage.appendChild(baArrow);
     return stage;
   }
 
