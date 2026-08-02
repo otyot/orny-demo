@@ -1047,8 +1047,8 @@
   // likely want different values. Safe to tune freely; none of these can
   // reintroduce a reveal jump (nothing here depends on which state a slot
   // is in — there's only one state per letter in this round).
-  const READING_LETTER_STAGE_WIDTH_FRACTION = 0.34;  // both letters + gap, of content width
-  const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.3; // tallest letter, of content height
+  const READING_LETTER_STAGE_WIDTH_FRACTION = 0.38;  // both letters + gap, of content width
+  const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.336; // tallest letter, of content height
   const READING_LETTER_GAP_FRACTION = 0.06; // gap between the two letters' facing ink edges (not box edges — same "what the eye sees" idea as READING_CHAR_GAP_FRACTION)
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
