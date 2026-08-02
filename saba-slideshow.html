@@ -116,11 +116,34 @@
     align-items: center;
     gap: 16px;
   }
-  /* The arrow spot is ALWAYS present in the layout (just invisible when this
-     side isn't active) so a slot's total height never changes between taps —
-     that's what keeps the mascots/letters themselves from visibly shifting
-     position when the arrow appears or disappears elsewhere on the frame. */
+  /* Reading-pair mascot/letter round: a fixed-size absolute canvas (see
+     buildReadingStage in the JS) rather than a flex row. Sa's box, Ba's box,
+     and each arrow are positioned independently with fixed pixel
+     coordinates computed once per frame — none of them can push or resize
+     any other, matching how the reference slide deck itself is built
+     (separate objects, manually placed, allowed to sit wherever they need
+     to). */
+  .reading-stage {
+    position: relative;
+  }
+  .reading-box {
+    position: absolute; /* left/top/width/height set inline by JS */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .reading-box-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  /* The arrow is always in the DOM (just invisible when its side isn't
+     active) — harmless now that it's absolutely positioned too, but kept
+     for a stable HUD/no-op consistency with the rest of the deck. */
   .reading-arrow {
+    position: absolute; /* left/top set inline by JS */
     width: min(10vw, 80px);
     height: auto;
     object-fit: contain;
@@ -766,16 +789,17 @@
   // to shrink everything, up to grow it — this is the one place to tune it.
   const STAGE_WIDTH_FRACTION = 0.62;
   const STAGE_HEIGHT_FRACTION = 0.68;
-  // Same idea, but sized for a reading-pair frame where TWO stages share the
-  // row side by side — each one gets a narrower budget so the pair fits
-  // together without overlapping. Deliberately smaller than a solo stage:
+  // Sizing budget for each mascot box in a reading-pair frame (see
+  // buildReadingStage below). Deliberately smaller than a solo stage:
   // Yahav's own single-character slides run a mascot at roughly a third of
   // the slide's real estate, and showing TWO of them side by side (our own
   // adaptation, not something his single-character method ever does) needs
   // to land well under that per side to read as "a pair," not "two
   // full-size scenes crammed together."
-  const PAIR_WIDTH_FRACTION = 0.24;
-  const PAIR_HEIGHT_FRACTION = 0.38;
+  const READING_BOX_WIDTH_FRACTION = 0.24;
+  const READING_BOX_HEIGHT_FRACTION = 0.38;
+  const READING_GAP_FRACTION = 0.1; // gap between the two boxes, as a fraction of contentEl's width
+  const READING_ARROW_GAP = 14; // px between a box's bottom edge and its arrow
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
@@ -822,9 +846,10 @@
   // its `origin` should be recomputed (quick to redo, ask and it's a
   // one-line update — no restructuring).
   // `widthFraction`/`heightFraction`: override the default solo-stage sizing
-  // budget — used by reading-pair frames (see buildReadingSlot) so each of
-  // the two side-by-side stages only claims its half of the row instead of
-  // the full-screen fraction.
+  // budget. (Reading-pair frames no longer go through this function — see
+  // buildReadingStage/buildReadingBox, which position their own boxes on a
+  // fixed absolute canvas instead — but the override params are left here
+  // in case a future solo-stage variant needs a different budget.)
   function buildCompositeStage(baseSrc, overlaySrcs, fadeBase, animateSrc, animateOrigin, widthFraction, heightFraction) {
     const stage = el('div', 'composite-stage');
     const knownDims = baseSrc && imageDims.get(baseSrc);
@@ -855,42 +880,93 @@
     return stage;
   }
 
-  // Builds one side of a reading-pair frame from its slot spec — a plain
-  // mascot image, a mascot-over-faded-picture composite (same look as the
-  // hiding-recall screens), or a real Hebrew letter cluster rendered as text.
-  // The arrow spot is ALWAYS appended (see .reading-arrow--hidden in the CSS)
-  // so a slot's total height is identical whether or not it's active this
-  // tap — that's what keeps the mascot/letter itself locked in place instead
-  // of the whole pair shifting up/down when the arrow appears elsewhere.
-  function buildReadingSlot(spec, isActive) {
-    const slot = el('div', 'reading-slot');
+  // READING-PAIR LAYOUT — built as a fixed-size absolute-position canvas,
+  // not a flexbox row. This directly mirrors how the reference Google
+  // Slides deck is actually built: Sa's box, Ba's box, and each arrow are
+  // independent objects with their own fixed coordinates, none of them
+  // able to push or resize any other (Noam pointed this out directly,
+  // looking at the bounding boxes in his own slide — the picture, the
+  // character, and the arrow are three separate positioned objects, not one
+  // box whose size depends on another). Every earlier "same row" /
+  // "grows when the arrow appears" bug came from the flexbox version
+  // computing each slot's box FROM its own content and then flowing it next
+  // to its neighbor — an absolute canvas removes that mechanism entirely:
+  // a box's position/size is set once, geometrically, from constants, and
+  // nothing about its content (plain vs composite, active vs not) can ever
+  // change it.
+  function buildReadingBox(spec) {
+    const box = el('div', 'reading-box');
     if (spec.type === 'text') {
-      slot.appendChild(el('p', 'hebrew-text', spec.text));
-    } else if (spec.type === 'composite') {
-      const stage = buildCompositeStage(spec.base, [spec.overlay], true, undefined, undefined, PAIR_WIDTH_FRACTION, PAIR_HEIGHT_FRACTION);
+      box.appendChild(el('p', 'hebrew-text', spec.text));
+      return box;
+    }
+    if (spec.type === 'composite') {
+      const baseImg = imgOrPlaceholder(spec.base, 'reading-box-img faded');
+      const overlayImg = imgOrPlaceholder(spec.overlay, 'reading-box-img');
+      box.appendChild(baseImg);
+      box.appendChild(overlayImg);
       // Recenter the composite AS A WHOLE (base + overlay together, never
       // scaled, never moved relative to each other) so its own ink lands at
       // the box's center — see applyCompositeRecenter above for why this is
       // needed even though the box itself never moves.
-      const baseImg = stage.querySelector('img');
-      if (baseImg) applyCompositeRecenter(stage, baseImg, spec.base);
-      slot.appendChild(stage);
-    } else {
-      const stage = buildCompositeStage(spec.src, [], false, undefined, undefined, PAIR_WIDTH_FRACTION, PAIR_HEIGHT_FRACTION);
-      // Plain-mascot-alone only: crop to a square centered on its own ink,
-      // sized so the ink fills a consistent fraction of the box — so Sa and
-      // Ba (drawn in different spots, at wildly different scales, within
-      // their own canvases) land on the same visual row at a consistent
-      // size, and so THIS SAME letter doesn't visibly jump in size when its
-      // composite (see the 'composite' branch above) replaces it a tap
-      // later. Never applied when a picture is stacked underneath — that
-      // alignment must stay exactly as registered, unshifted, uncropped.
-      const charImg = stage.querySelector('img');
-      if (charImg) applyMascotCrop(charImg, spec.src);
-      slot.appendChild(stage);
+      if (baseImg.tagName === 'IMG') applyCompositeRecenter(box, baseImg, spec.base);
+      return box;
     }
-    slot.appendChild(imgOrPlaceholder(ASSETS.arrow_img, 'reading-arrow' + (isActive ? '' : ' reading-arrow--hidden')));
-    return slot;
+    // Plain-mascot-alone: crop to a square centered on its own ink, sized so
+    // the ink fills a consistent fraction of the box — so Sa and Ba (drawn
+    // in different spots, at wildly different scales, within their own
+    // canvases) land on the same visual row at a consistent size, and so
+    // THIS SAME letter doesn't visibly jump in size when its composite (see
+    // above) replaces it a tap later. Never applied when a picture is
+    // stacked underneath — that alignment must stay exactly as registered,
+    // unshifted, uncropped.
+    const charImg = imgOrPlaceholder(spec.src, 'reading-box-img');
+    box.appendChild(charImg);
+    if (charImg.tagName === 'IMG') applyMascotCrop(charImg, spec.src);
+    return box;
+  }
+  // Places an already-built box/arrow at fixed pixel coordinates within the
+  // reading-stage — geometry only, completely independent of what's inside.
+  function positionAbsolute(node, left, top, width, height) {
+    node.style.position = 'absolute';
+    node.style.left = `${Math.round(left)}px`;
+    node.style.top = `${Math.round(top)}px`;
+    if (width != null) node.style.width = `${Math.round(width)}px`;
+    if (height != null) node.style.height = `${Math.round(height)}px`;
+  }
+  // Builds the whole reading-pair frame as one fixed canvas: Sa's box on the
+  // right, Ba's box on the left (RTL, per Hebrew reading order), each with
+  // its own arrow directly below it — every coordinate computed once from
+  // contentEl's size and fixed constants, never from any box's content.
+  function buildReadingStage(saSpec, baSpec, active) {
+    const stage = el('div', 'reading-stage');
+    const rect = contentEl.getBoundingClientRect();
+    const boxSize = Math.min(rect.width * READING_BOX_WIDTH_FRACTION, rect.height * READING_BOX_HEIGHT_FRACTION);
+    const gap = rect.width * READING_GAP_FRACTION;
+    const centerX = rect.width / 2;
+    const top = (rect.height - boxSize) / 2 - 20; // slight upward bias to leave headroom for the arrow row below
+    const saLeft = centerX + gap / 2;
+    const baLeft = centerX - gap / 2 - boxSize;
+    stage.style.width = `${Math.round(rect.width)}px`;
+    stage.style.height = `${Math.round(rect.height)}px`;
+
+    const saBox = buildReadingBox(saSpec);
+    positionAbsolute(saBox, saLeft, top, boxSize, boxSize);
+    const saArrow = imgOrPlaceholder(ASSETS.arrow_img, 'reading-arrow' + (active === 'sa' ? '' : ' reading-arrow--hidden'));
+    positionAbsolute(saArrow, saLeft + boxSize / 2, top + boxSize + READING_ARROW_GAP);
+    saArrow.style.transform = 'translateX(-50%)';
+
+    const baBox = buildReadingBox(baSpec);
+    positionAbsolute(baBox, baLeft, top, boxSize, boxSize);
+    const baArrow = imgOrPlaceholder(ASSETS.arrow_img, 'reading-arrow' + (active === 'ba' ? '' : ' reading-arrow--hidden'));
+    positionAbsolute(baArrow, baLeft + boxSize / 2, top + boxSize + READING_ARROW_GAP);
+    baArrow.style.transform = 'translateX(-50%)';
+
+    stage.appendChild(saBox);
+    stage.appendChild(saArrow);
+    stage.appendChild(baBox);
+    stage.appendChild(baArrow);
+    return stage;
   }
 
   function renderFrame(frame) {
@@ -932,10 +1008,7 @@
       case 'reading-pair': {
         // No on-screen text here either — same narration-lives-live rule as
         // the teaching-cycle frames above. frame.text is reference-only.
-        const wrap = el('div', 'reading-pair');
-        wrap.appendChild(buildReadingSlot(frame.sa, frame.active === 'sa'));
-        wrap.appendChild(buildReadingSlot(frame.ba, frame.active === 'ba'));
-        contentEl.appendChild(wrap);
+        contentEl.appendChild(buildReadingStage(frame.sa, frame.ba, frame.active));
         break;
       }
       case 'saba-reveal': {
