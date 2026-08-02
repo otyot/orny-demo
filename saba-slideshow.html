@@ -147,10 +147,15 @@
   /* ATTENTION CUE — replaces the arrow entirely (see buildReadingStage's
      comment for why): the active side pulses in place, twice, instead of a
      separate arrow element appearing next to it. Nothing is added to or
-     removed from the DOM for this — it's the box itself animating — so
+     removed from the DOM for this — it's a specific element animating — so
      there's no separate element whose appearance/disappearance could ever
      be mistaken for affecting its neighbor. Scales from and back to 100%
-     (never from/to 0) — a "pulse," not a "grow from nothing." */
+     (never from/to 0) — a "pulse," not a "grow from nothing."
+     Applied to the ONE focal element inside a box — the character image
+     (plain or composite-overlay) or the letter text — never to a
+     composite's faded base picture and never to the box itself. This
+     mirrors how Noam actually teaches it in person: the picture stays put,
+     only the character/letter being called out moves. */
   @keyframes readingPulse {
     0%, 100% { transform: scale(1); }
     25% { transform: scale(1.28); }
@@ -491,11 +496,22 @@
   // changes until it's its turn.
   //
   // Slot shapes (used for both `sa` and `ba` on every reading-pair frame):
-  //   { type: 'character', src }              — plain mascot image
+  //   { type: 'character', src, refPicture }   — plain mascot image, cropped
+  //                                              through that letter's own
+  //                                              picture's crop window (see
+  //                                              getCroppedImage) so it's
+  //                                              pixel-identical in size and
+  //                                              position to how it appears
+  //                                              inside that letter's
+  //                                              composite — no size jump
+  //                                              when the picture appears.
   //   { type: 'composite', base, overlay }     — mascot at full opacity over
-  //                                              its picture faded to 20%
-  //                                              (identical treatment to the
-  //                                              hiding-recall screens)
+  //                                              its picture faded to 20%,
+  //                                              rendered as two separately
+  //                                              stacked images so the pulse
+  //                                              (see buildReadingBox) can
+  //                                              animate the character alone
+  //                                              without moving the picture
   //   { type: 'text', text }                   — a real Hebrew letter cluster
   //
   // `active`: 'sa' | 'ba' | null — which side (if any) pulses this tap.
@@ -506,8 +522,8 @@
     const sa = LETTERS.sa;
     const ba = LETTERS.ba;
 
-    const saCharacter = { type: 'character', src: sa.characterImg };
-    const baCharacter = { type: 'character', src: ba.characterImg };
+    const saCharacter = { type: 'character', src: sa.characterImg, refPicture: sa.pictureImg };
+    const baCharacter = { type: 'character', src: ba.characterImg, refPicture: ba.pictureImg };
     const saComposite = { type: 'composite', base: sa.pictureImg, overlay: sa.characterImg };
     const baComposite = { type: 'composite', base: ba.pictureImg, overlay: ba.characterImg };
     const saLetter = { type: 'text', text: 'סַ' };
@@ -618,7 +634,6 @@
   // and made plain mascots look BIGGER than their composites — the opposite
   // of consistent.)
   const MASCOT_INK_FILL_FRACTION = 0.78; // how much of the new square a mascot's ink should occupy
-  const mascotCropCache = new Map(); // src -> cropped square data URL
   function computeInkBBoxPixels(imgEl) {
     try {
       const w = imgEl.naturalWidth, h = imgEl.naturalHeight;
@@ -647,78 +662,6 @@
       return null; // canvas blocked for some reason — falls back to unadjusted rendering
     }
   }
-  // Builds (and caches, per src) a cropped square version of a mascot PNG
-  // whose ink fills MASCOT_INK_FILL_FRACTION of the new canvas, centered.
-  // Returns null (leaving the original image untouched) if anything about
-  // reading the source image's pixels fails — same safe fallback as before.
-  function getNormalizedMascotSrc(imgEl, src) {
-    if (mascotCropCache.has(src)) return mascotCropCache.get(src);
-    const bbox = computeInkBBoxPixels(imgEl);
-    if (!bbox) return null;
-    const bboxW = bbox.maxX - bbox.minX;
-    const bboxH = bbox.maxY - bbox.minY;
-    const cx = (bbox.minX + bbox.maxX) / 2;
-    const cy = (bbox.minY + bbox.maxY) / 2;
-    const longest = Math.max(bboxW, bboxH) || 1;
-    const canvasSize = Math.max(1, Math.round(longest / MASCOT_INK_FILL_FRACTION));
-    const canvas = document.createElement('canvas');
-    canvas.width = canvasSize;
-    canvas.height = canvasSize;
-    const ctx = canvas.getContext('2d');
-    try {
-      // Source rectangle is centered on the ink's own center; any part of it
-      // that falls outside the original image's bounds is simply left
-      // transparent by drawImage — exactly the padding we want.
-      ctx.drawImage(imgEl, cx - canvasSize / 2, cy - canvasSize / 2, canvasSize, canvasSize, 0, 0, canvasSize, canvasSize);
-      const dataUrl = canvas.toDataURL();
-      mascotCropCache.set(src, dataUrl);
-      return dataUrl;
-    } catch (e) {
-      return null; // tainted canvas or similar — falls back to unadjusted rendering
-    }
-  }
-  // Swaps an already-in-the-DOM plain-mascot <img> to its cropped version
-  // once its source image has actually loaded (the crop needs real pixels).
-  function applyMascotCrop(imgEl, src) {
-    function tryApply() {
-      const dataUrl = getNormalizedMascotSrc(imgEl, src);
-      if (dataUrl) imgEl.src = dataUrl;
-    }
-    if (imgEl.complete && imgEl.naturalWidth) tryApply();
-    else imgEl.addEventListener('load', tryApply);
-  }
-
-  // COMPOSITE ALIGNMENT — a plain mascot is guaranteed centered in its box
-  // (the crop above is built symmetric around its own ink), but a
-  // composite's BASE PICTURE, left exactly as drawn, is not: measured
-  // directly, sa-sal-i.png's ink center sits at (49.7%, 49.9%) of its own
-  // canvas (essentially centered already) while ba-bakbuk-i.png's sits at
-  // (51%, 59.1%) — nearly 10 points lower. Same box, same alignment rule,
-  // but two different internal registrations, so Ba's bottle visibly hangs
-  // lower than Sa's hoop even though neither box has moved.
-  //
-  // A first attempt fixed this with a live CSS transform (translate the
-  // whole composite once its image loaded). That closed the alignment gap
-  // but created a NEW, more confusing problem: a slot's plain rendering has
-  // no transform, so the instant its composite replaced it, the transform
-  // applied and visibly nudged the content — reported (correctly) as "the
-  // arrow is affecting the images," even though the arrow itself was never
-  // the cause. A live, conditionally-applied transform is exactly the kind
-  // of thing that looks like it's reacting to something else appearing.
-  //
-  // Fixed for real by baking the correction into the PIXELS up front,
-  // before anything is ever placed in the DOM — same technique as the
-  // mascot crop above. Both the base picture and its overlay character are
-  // drawn onto ONE new canvas using the IDENTICAL crop window (same corner,
-  // same size, derived from the base's own ink so it fills
-  // MASCOT_INK_FILL_FRACTION of the result) — cropping both through the
-  // same window keeps the character exactly where it was relative to the
-  // picture (the "hides inside the picture" registration is a crop, not a
-  // transform, so it can't drift), while the flattened result is already
-  // centered, at rest, with nothing left to apply at render time. A
-  // composite's box now renders exactly like a plain mascot's: an already-
-  // correct image filling a box that never changes.
-  const compositeCropCache = new Map(); // "baseSrc|overlaySrc" -> flattened, cropped data URL
   function loadImageForCrop(src) {
     return new Promise((resolve) => {
       const img = new Image();
@@ -727,12 +670,12 @@
       img.src = src;
     });
   }
-  async function getNormalizedCompositeSrc(baseSrc, overlaySrc) {
-    const key = `${baseSrc}|${overlaySrc}`;
-    if (compositeCropCache.has(key)) return compositeCropCache.get(key);
-    const [baseImg, overlayImg] = await Promise.all([loadImageForCrop(baseSrc), loadImageForCrop(overlaySrc)]);
-    if (!baseImg) return null;
-    const bbox = computeInkBBoxPixels(baseImg);
+  // Computes the crop window (center + square size) from a REFERENCE
+  // image's own ink bounds, sized so that ink fills MASCOT_INK_FILL_FRACTION
+  // of the resulting square. Whatever image is later cropped through this
+  // same window lands in the exact same coordinate space as the reference.
+  function computeCropWindow(referenceImg) {
+    const bbox = computeInkBBoxPixels(referenceImg);
     if (!bbox) return null;
     const bboxW = bbox.maxX - bbox.minX;
     const bboxH = bbox.maxY - bbox.minY;
@@ -740,32 +683,72 @@
     const cy = (bbox.minY + bbox.maxY) / 2;
     const longest = Math.max(bboxW, bboxH) || 1;
     const canvasSize = Math.max(1, Math.round(longest / MASCOT_INK_FILL_FRACTION));
+    return { cx, cy, canvasSize };
+  }
+  function cropImageToWindow(img, win) {
+    if (!img || !win) return null;
     const canvas = document.createElement('canvas');
-    canvas.width = canvasSize;
-    canvas.height = canvasSize;
+    canvas.width = win.canvasSize;
+    canvas.height = win.canvasSize;
     const ctx = canvas.getContext('2d');
     try {
-      ctx.globalAlpha = 0.2; // faded base, same look as img.faded elsewhere
-      ctx.drawImage(baseImg, cx - canvasSize / 2, cy - canvasSize / 2, canvasSize, canvasSize, 0, 0, canvasSize, canvasSize);
-      if (overlayImg) {
-        ctx.globalAlpha = 1;
-        // Same crop window as the base above — this is what keeps the
-        // character registered exactly where it was drawn relative to the
-        // picture, without a separate alignment step of its own.
-        ctx.drawImage(overlayImg, cx - canvasSize / 2, cy - canvasSize / 2, canvasSize, canvasSize, 0, 0, canvasSize, canvasSize);
-      }
-      const dataUrl = canvas.toDataURL();
-      compositeCropCache.set(key, dataUrl);
-      return dataUrl;
+      // Source rectangle is centered on the window's own center; any part of
+      // it that falls outside the original image's bounds is simply left
+      // transparent by drawImage — exactly the padding we want.
+      ctx.drawImage(img, win.cx - win.canvasSize / 2, win.cy - win.canvasSize / 2, win.canvasSize, win.canvasSize, 0, 0, win.canvasSize, win.canvasSize);
+      return canvas.toDataURL();
     } catch (e) {
       return null; // tainted canvas or similar — falls back to unadjusted rendering
     }
   }
-  // Fills an already-in-the-DOM <img> with the flattened, pre-centered
-  // composite once it's ready. Nothing shifts when this resolves — the img
-  // has no content until then, so there's no "before" state to jump from.
-  function applyCompositeCrop(imgEl, baseSrc, overlaySrc) {
-    getNormalizedCompositeSrc(baseSrc, overlaySrc).then((dataUrl) => {
+
+  // UNIFIED CROP SYSTEM — one crop window per PICTURE (Sal/Bakbuk), reused
+  // for every image that needs to line up with it: the picture itself
+  // (composite's base layer), the character stacked on top of it
+  // (composite's overlay layer), AND that same character shown ALONE with
+  // no picture behind it (a reading-pair's plain "character" slot).
+  //
+  // This replaced an earlier version with TWO SEPARATE crop algorithms: a
+  // mascot-alone crop centered on the CHARACTER's own ink, and a composite
+  // crop centered on the PICTURE's ink. Those two windows are legitimately
+  // different sizes (a small character's own bounding box is much tighter
+  // than the full picture's), so the same character rendered through each
+  // one came out at two different apparent sizes — meaning the character
+  // visibly changed size the instant its picture appeared behind it, on top
+  // of (and easy to mistake for part of) the intended pulse animation. Noam
+  // caught this directly: "it changes size for no reason... first it scales
+  // with the image underneath... something is wrong there from the root."
+  //
+  // Fixed at the root by always deriving the crop window from the PICTURE,
+  // even when only the character is being shown — so a reading-pair's
+  // "character" slot for a given letter always passes that letter's own
+  // `refPicture` alongside `src`, and gets cropped through the exact same
+  // window (same cache entry, bit-for-bit identical output) as that same
+  // character's composite overlay. The only visual difference between
+  // "character alone" and "composite" is then really just whether the faded
+  // picture layer is present behind it — the character itself never moves
+  // or resizes going from one to the other.
+  const cropWindowCache = new Map(); // referenceSrc -> Promise<window|null>
+  function getCropWindow(referenceSrc) {
+    if (!cropWindowCache.has(referenceSrc)) {
+      cropWindowCache.set(referenceSrc, loadImageForCrop(referenceSrc).then((img) => (img ? computeCropWindow(img) : null)));
+    }
+    return cropWindowCache.get(referenceSrc);
+  }
+  const croppedImageCache = new Map(); // "referenceSrc|imgSrc" -> Promise<dataURL|null>
+  function getCroppedImage(referenceSrc, imgSrc) {
+    const key = `${referenceSrc}|${imgSrc}`;
+    if (!croppedImageCache.has(key)) {
+      croppedImageCache.set(key, Promise.all([getCropWindow(referenceSrc), loadImageForCrop(imgSrc)])
+        .then(([win, img]) => cropImageToWindow(img, win)));
+    }
+    return croppedImageCache.get(key);
+  }
+  // Fills an already-in-the-DOM <img> once its cropped version is ready.
+  // Nothing shifts when this resolves — the img has no content until then,
+  // so there's no "before" state to jump from.
+  function applyCroppedSrc(imgEl, referenceSrc, imgSrc) {
+    getCroppedImage(referenceSrc, imgSrc).then((dataUrl) => {
       if (dataUrl) imgEl.src = dataUrl;
     });
   }
@@ -779,7 +762,7 @@
       [f.sa, f.ba].forEach((slot) => {
         if (!slot) return;
         if (slot.type === 'composite') srcs.push(slot.base, slot.overlay);
-        else if (slot.type === 'character') srcs.push(slot.src);
+        else if (slot.type === 'character') srcs.push(slot.src, slot.refPicture);
       });
     }
     return srcs.filter(Boolean);
@@ -800,29 +783,24 @@
     });
   }
   preloadAllImages(frames);
-  // Warms mascotCropCache/compositeCropCache for every reading-pair slot AT
+  // Warms cropWindowCache/croppedImageCache for every reading-pair slot AT
   // PAGE LOAD, before the person ever taps into that phase. Confirmed by
-  // direct measurement: without this, the FIRST time a given composite is
-  // shown each page load, its <img> genuinely sits blank (src="",
-  // naturalWidth=0) for 40-60ms while the crop+flatten canvas work runs,
-  // THEN pops in fully formed — a real, reproducible blank-then-pop, not
-  // a position bug, and it lines up exactly with "something happens to the
-  // image right when it becomes active" (a plain mascot's cropped src is
-  // usually already cached by the time its composite is first shown, so
-  // the composite is the one that visibly lags). This makes that one-time
-  // cost happen silently in the background at load, so every crop is
-  // already sitting in cache before it's ever needed on screen.
+  // direct measurement: without this, the FIRST time a given crop is needed
+  // each page load, its <img> genuinely sits blank (src="", naturalWidth=0)
+  // for 40-60ms while the crop canvas work runs, THEN pops in fully formed —
+  // a real, reproducible blank-then-pop, not a position bug. This makes that
+  // one-time cost happen silently in the background at load, so every crop
+  // is already sitting in cache before it's ever needed on screen.
   function precomputeReadingPairAssets(allFrames) {
     allFrames.forEach((f) => {
       if (f.kind !== 'reading-pair') return;
       [f.sa, f.ba].forEach((spec) => {
         if (!spec) return;
         if (spec.type === 'composite') {
-          getNormalizedCompositeSrc(spec.base, spec.overlay);
+          getCroppedImage(spec.base, spec.base);
+          getCroppedImage(spec.base, spec.overlay);
         } else if (spec.type === 'character') {
-          const img = new Image();
-          img.onload = () => getNormalizedMascotSrc(img, spec.src);
-          img.src = spec.src;
+          getCroppedImage(spec.refPicture, spec.src);
         }
       });
     });
@@ -971,35 +949,45 @@
   // a box's position/size is set once, geometrically, from constants, and
   // nothing about its content (plain vs composite, active vs not) can ever
   // change it.
-  function buildReadingBox(spec) {
+  function buildReadingBox(spec, isActive) {
     const box = el('div', 'reading-box');
     if (spec.type === 'text') {
-      box.appendChild(el('p', 'hebrew-text', spec.text));
+      const textEl = el('p', 'hebrew-text', spec.text);
+      if (isActive) textEl.classList.add('reading-box--pulse');
+      box.appendChild(textEl);
       return box;
     }
     if (spec.type === 'composite') {
-      // A single flattened, pre-centered image (base + overlay baked
-      // together, faded base included) — see applyCompositeCrop above for
-      // why this replaced a live transform. No separate faded/overlay
-      // layers here; the fade is already baked into the pixels.
-      const img = document.createElement('img');
-      img.className = 'reading-box-img';
-      img.alt = spec.base;
-      box.appendChild(img);
-      applyCompositeCrop(img, spec.base, spec.overlay);
+      // Two separately stacked images, NOT one flattened picture — the
+      // static faded picture underneath, and the character on top of it as
+      // its own element, so the pulse (below) can animate the character
+      // alone without the picture moving with it. Both are cropped through
+      // the IDENTICAL window (derived from the base picture's own ink — see
+      // getCroppedImage) so they stay pixel-registered exactly as if they
+      // were still one flattened image; only the animation target changes.
+      const baseImg = document.createElement('img');
+      baseImg.className = 'reading-box-img faded';
+      baseImg.alt = spec.base;
+      const overlayImg = document.createElement('img');
+      overlayImg.className = 'reading-box-img';
+      overlayImg.alt = spec.overlay;
+      if (isActive) overlayImg.classList.add('reading-box--pulse');
+      box.appendChild(baseImg);
+      box.appendChild(overlayImg);
+      applyCroppedSrc(baseImg, spec.base, spec.base);
+      applyCroppedSrc(overlayImg, spec.base, spec.overlay);
       return box;
     }
-    // Plain-mascot-alone: crop to a square centered on its own ink, sized so
-    // the ink fills a consistent fraction of the box — so Sa and Ba (drawn
-    // in different spots, at wildly different scales, within their own
-    // canvases) land on the same visual row at a consistent size, and so
-    // THIS SAME letter doesn't visibly jump in size when its composite (see
-    // above) replaces it a tap later. Never applied when a picture is
-    // stacked underneath — that alignment must stay exactly as registered,
-    // unshifted, uncropped.
-    const charImg = imgOrPlaceholder(spec.src, 'reading-box-img');
+    // Plain-mascot-alone: cropped through spec.refPicture's window (that
+    // letter's own picture), NOT its own ink — see the crop-system comment
+    // above for why this is what keeps it pixel-identical to how it appears
+    // inside spec.refPicture's composite a tap later, with zero size change.
+    const charImg = document.createElement('img');
+    charImg.className = 'reading-box-img';
+    charImg.alt = spec.src;
+    if (isActive) charImg.classList.add('reading-box--pulse');
     box.appendChild(charImg);
-    if (charImg.tagName === 'IMG') applyMascotCrop(charImg, spec.src);
+    applyCroppedSrc(charImg, spec.refPicture, spec.src);
     return box;
   }
   // Places an already-built box at fixed pixel coordinates within the
@@ -1039,13 +1027,11 @@
     stage.style.width = `${Math.round(rect.width)}px`;
     stage.style.height = `${Math.round(rect.height)}px`;
 
-    const saBox = buildReadingBox(saSpec);
+    const saBox = buildReadingBox(saSpec, active === 'sa');
     positionAbsolute(saBox, saLeft, top, boxSize, boxSize);
-    if (active === 'sa') saBox.classList.add('reading-box--pulse');
 
-    const baBox = buildReadingBox(baSpec);
+    const baBox = buildReadingBox(baSpec, active === 'ba');
     positionAbsolute(baBox, baLeft, top, boxSize, boxSize);
-    if (active === 'ba') baBox.classList.add('reading-box--pulse');
 
     stage.appendChild(saBox);
     stage.appendChild(baBox);
