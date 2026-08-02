@@ -299,6 +299,12 @@
     // for why this replaced live text entirely.
     sa_letter_img: 'assets/samekh-kamatz.png',
     ba_letter_img: 'assets/bet-kamatz-dgsh.png',
+    // Silent Aleph — properly, the word "Saba" is spelled Samech-Bet-Aleph
+    // (סבא), with the Aleph carrying no sound of its own and no niqqud.
+    // It always sits immediately to Ba's left (screen-left, since it comes
+    // right after Bet reading right-to-left) — see aleph_letter_img usage
+    // in buildReadingStage below.
+    aleph_letter_img: 'assets/aleph.png',
   };
 
   // ---------------------------------------------------------------------
@@ -341,6 +347,13 @@
         { id: 'body', overlayImg: 'assets/ba-bakbuk-e2.png', label: 'This is the body', origin: '50% 50%' },
         { id: 'base', overlayImg: 'assets/ba-bakbuk-e3.png', label: 'This is the base', origin: '50% 50%' },
       ],
+    },
+    // Not a taught letter — a minimal entry so the silent Aleph can reuse
+    // the same letterId-keyed measurement caches (getLetterWindow/
+    // letterMetrics) as sa/ba below. Only .letterImg is ever read for it.
+    aleph: {
+      id: 'aleph',
+      letterImg: ASSETS.aleph_letter_img,
     },
   };
 
@@ -937,7 +950,12 @@
         if (!slot) return;
         if (slot.type === 'composite') srcs.push(slot.base, slot.overlay);
         else if (slot.type === 'character') srcs.push(slot.src);
-        else if (slot.type === 'letter-image') srcs.push(LETTERS[slot.letter].letterImg);
+        else if (slot.type === 'letter-image') {
+          srcs.push(LETTERS[slot.letter].letterImg);
+          // The silent Aleph always rides along with Ba's letter-image —
+          // see the ASSETS.aleph_letter_img comment.
+          if (slot.letter === 'ba') srcs.push(LETTERS.aleph.letterImg);
+        }
       });
     }
     return srcs.filter(Boolean);
@@ -978,6 +996,7 @@
           getReadingCroppedImage(spec.letter, spec.src);
         } else if (spec.type === 'letter-image') {
           getLetterWindow(spec.letter);
+          if (spec.letter === 'ba') getLetterWindow('aleph');
         }
       });
     });
@@ -1050,6 +1069,7 @@
   const READING_LETTER_STAGE_WIDTH_FRACTION = 0.38;  // both letters + gap, of content width
   const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.336; // tallest letter, of content height
   const READING_LETTER_GAP_FRACTION = 0.06; // gap between the two letters' facing ink edges (not box edges — same "what the eye sees" idea as READING_CHAR_GAP_FRACTION)
+  const READING_ALEPH_GAP_FRACTION = 0.015; // Aleph sits right up against Ba's left side — much closer than the Sa/Ba gap, since together they're one visual unit (per Noam: "keep the space between Sa and Ba, place Aleph to the left of Ba but closer")
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
@@ -1277,10 +1297,15 @@
     let saLeft = centerX + defaultGap / 2;
     let baLeft = centerX - defaultGap / 2 - fallbackSize;
     let saTop = centerY - fallbackSize / 2, baTop = centerY - fallbackSize / 2;
+    // Aleph only ever renders on letter frames (see isLetterFrame branch
+    // below) — starts hidden/zero-sized, never shown unless real geometry
+    // is computed for it.
+    let alephLeft = 0, alephTop = 0, alephSize = 0, showAleph = false;
     const mSa = readingMetrics('sa');
     const mBa = readingMetrics('ba');
     const lSa = letterMetrics('sa');
     const lBa = letterMetrics('ba');
+    const lAleph = letterMetrics('aleph');
     if (!isTextFrame && !isLetterFrame && mSa && mBa) {
       // Per-K scale factors (s_L = K * sPerK_L): equal on-screen ink for
       // both letters, with the optional per-letter hand nudge folded in.
@@ -1355,37 +1380,55 @@
           }
         });
       }
-    } else if (isLetterFrame && lSa && lBa) {
+    } else if (isLetterFrame && lSa && lBa && lAleph) {
       // Letters round: an entirely separate layout from the mascot math
       // above (own font/size/position decisions, per Noam). The shared
       // reference point is NOT the ink center (as with the mascots) but
       // the ink BOTTOM edge — Noam's own design: "my point of reference
-      // is the Kamatz sign, so that will be the zero." Both letter PNGs
-      // were authored at the same physical canvas size in one Photoshop
-      // document, so — unlike the mascots — there's no per-letter ink
-      // normalization step: both images are simply scaled by one shared
-      // factor S.
+      // is the Kamatz sign, so that will be the zero." All three letter
+      // PNGs (Sa, Ba, and the silent Aleph that properly belongs next to
+      // Ba in the word's real spelling) were authored at the same physical
+      // canvas size in one Photoshop document, so — unlike the mascots —
+      // there's no per-letter ink normalization step: all three are simply
+      // scaled by one shared factor S.
+      //
+      // Screen order, left to right, is Aleph, Ba, [gap], Sa — matching
+      // the right-to-left reading order Sa -> Ba(+silent Aleph). Aleph
+      // sits right up against Ba (READING_ALEPH_GAP_FRACTION, much
+      // tighter than the Sa/Ba gap) since the two are one visual unit;
+      // the Sa/Ba gap stays exactly as tuned before Aleph existed.
       const gapPx = rect.width * READING_LETTER_GAP_FRACTION;
+      const alephGapPx = rect.width * READING_ALEPH_GAP_FRACTION;
       const widthBudget = rect.width * READING_LETTER_STAGE_WIDTH_FRACTION;
       const heightBudget = rect.height * READING_LETTER_STAGE_HEIGHT_FRACTION;
 
-      // Height bound: both letters' ink bottoms share a baseline, so the
-      // union's height is (largest rise above it) + (largest drop below
-      // it, i.e. however far each canvas extends past its own ink-bottom).
-      const upPerS = Math.max(lSa.bottom - lSa.top, lBa.bottom - lBa.top);
-      const downPerS = Math.max(lSa.size - lSa.bottom, lBa.size - lBa.bottom);
+      // Height bound: all three letters' ink bottoms share a baseline, so
+      // the union's height is (largest rise above it) + (largest drop
+      // below it, i.e. however far each canvas extends past its own
+      // ink-bottom). Aleph has no niqqud of its own, so it's unlikely to
+      // be the tallest/lowest, but it's included for correctness.
+      const upPerS = Math.max(lSa.bottom - lSa.top, lBa.bottom - lBa.top, lAleph.bottom - lAleph.top);
+      const downPerS = Math.max(lSa.size - lSa.bottom, lBa.size - lBa.bottom, lAleph.size - lAleph.bottom);
       let S = heightBudget / (upPerS + downPerS);
 
-      // Width bound (exact): same edge-pair approach as the mascot version,
-      // with Ba's box tentatively at x = 0.
-      const saLeftA = lBa.right - lSa.left; // sa box left = saLeftA*S + gapPx
+      // Width bound (exact): same edge-pair approach as the mascot
+      // version, extended to three boxes. Ba's box is tentatively at
+      // x = 0; Sa is placed to its right (gapPx) and Aleph to its left
+      // (alephGapPx, negative-direction), then every box's left/right
+      // edge is bounded against every other — the union's width is the
+      // max over any (rightEdge - leftEdge) pair, so bounding every pair
+      // bounds the union.
+      const saLeftA = lBa.right - lSa.left;       // sa box left = saLeftA*S + gapPx
+      const alephLeftA = lBa.left - lAleph.right; // aleph box left = alephLeftA*S - alephGapPx
       const edgesRight = [
-        { a: lBa.size, g: 0 },                    // ba box right
-        { a: saLeftA + lSa.size, g: gapPx },       // sa box right
+        { a: lBa.size, g: 0 },                              // ba box right
+        { a: saLeftA + lSa.size, g: gapPx },                 // sa box right
+        { a: alephLeftA + lAleph.size, g: -alephGapPx },     // aleph box right
       ];
       const edgesLeft = [
-        { a: 0, g: 0 },              // ba box left
-        { a: saLeftA, g: gapPx },    // sa box left
+        { a: 0, g: 0 },                    // ba box left
+        { a: saLeftA, g: gapPx },          // sa box left
+        { a: alephLeftA, g: -alephGapPx }, // aleph box left
       ];
       edgesRight.forEach((r) => edgesLeft.forEach((l) => {
         const a = r.a - l.a;
@@ -1396,24 +1439,29 @@
 
       saSize = lSa.size * S;
       baSize = lBa.size * S;
+      alephSize = lAleph.size * S;
+      showAleph = true;
 
-      // Horizontal: Ba at 0, Sa placed so the ink-edge gap is exact, then
-      // shift both so the union of the boxes is centered on screen.
+      // Horizontal: Ba at 0, Sa/Aleph placed so their ink-edge gaps are
+      // exact, then shift all three so the union is centered on screen.
       baLeft = 0;
       saLeft = lBa.right * S + gapPx - lSa.left * S;
-      const unionLeft = Math.min(baLeft, saLeft);
-      const unionRight = Math.max(baLeft + baSize, saLeft + saSize);
+      alephLeft = lBa.left * S - alephGapPx - lAleph.right * S;
+      const unionLeft = Math.min(baLeft, saLeft, alephLeft);
+      const unionRight = Math.max(baLeft + baSize, saLeft + saSize, alephLeft + alephSize);
       const shiftX = (rect.width - (unionRight - unionLeft)) / 2 - unionLeft;
       baLeft += shiftX;
       saLeft += shiftX;
+      alephLeft += shiftX;
 
       // Vertical: letters share baseline y0 (their ink bottoms), the union
       // of the boxes is centered on screen.
-      const up = Math.max((lSa.bottom - lSa.top) * S, (lBa.bottom - lBa.top) * S);
-      const down = Math.max((lSa.size - lSa.bottom) * S, (lBa.size - lBa.bottom) * S);
+      const up = upPerS * S;
+      const down = downPerS * S;
       const y0 = (rect.height - (up + down)) / 2 + up;
       saTop = y0 - lSa.bottom * S;
       baTop = y0 - lBa.bottom * S;
+      alephTop = y0 - lAleph.bottom * S;
     } else if (isLetterFrame) {
       // Metrics not measured yet — same reasoning/pattern as the mascot
       // fallback above, using the letter-glyph windows instead. One retry
@@ -1421,7 +1469,7 @@
       if (!readingRetriedFrames.has(frames[index].id)) {
         readingRetriedFrames.add(frames[index].id);
         const at = index;
-        Promise.all([getLetterWindow('sa'), getLetterWindow('ba')]).then(() => {
+        Promise.all([getLetterWindow('sa'), getLetterWindow('ba'), getLetterWindow('aleph')]).then(() => {
           if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
             renderFrame(frames[index]);
           }
@@ -1437,6 +1485,21 @@
 
     stage.appendChild(saBox);
     stage.appendChild(baBox);
+
+    if (showAleph) {
+      // The silent Aleph — not a taught letter, never active/tappable, no
+      // pulse — just a fixed companion glyph that belongs next to Ba in
+      // the word's real spelling. See ASSETS.aleph_letter_img.
+      const alephBox = el('div', 'reading-box');
+      const alephImgEl = document.createElement('img');
+      alephImgEl.className = 'reading-box-img';
+      alephImgEl.alt = LETTERS.aleph.letterImg;
+      alephImgEl.src = LETTERS.aleph.letterImg;
+      alephBox.appendChild(alephImgEl);
+      positionAbsolute(alephBox, alephLeft, alephTop, alephSize, alephSize);
+      stage.appendChild(alephBox);
+    }
+
     return stage;
   }
 
