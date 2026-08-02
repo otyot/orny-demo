@@ -292,6 +292,13 @@
     bakbuk_picture: 'assets/ba-bakbuk-i.png',
     arrow_img:       'assets/arrow.png',
     saba_illustration: 'assets/saba.png', // still image placeholder — swap for a short clip later, same slot
+    // Real Hebrew letters round — pre-rendered PNGs (Noam's Photoshop file,
+    // Noto Sans Hebrew), NOT live CSS text. Each is a letter + its niqqud
+    // baked into one flat image on a shared 700x700 canvas, same convention
+    // as the mascot files above. See the LETTER-GLYPH WINDOW comment below
+    // for why this replaced live text entirely.
+    sa_letter_img: 'assets/samekh-kamatz.png',
+    ba_letter_img: 'assets/bet-kamatz-dgsh.png',
   };
 
   // ---------------------------------------------------------------------
@@ -316,6 +323,7 @@
       characterImg: ASSETS.sa_character,
       pictureImg: ASSETS.sal_picture,
       pictureName: 'Sal',
+      letterImg: ASSETS.sa_letter_img,
       elements: [
         { id: 'ring', overlayImg: 'assets/sa-sal-e1.png', label: 'This is the ring', origin: '37% 58%' },
         { id: 'net',  overlayImg: 'assets/sa-sal-e2.png', label: 'This is the net',  origin: '37% 77%' },
@@ -327,6 +335,7 @@
       characterImg: ASSETS.ba_character,
       pictureImg: ASSETS.bakbuk_picture,
       pictureName: 'Bakbuk',
+      letterImg: ASSETS.ba_letter_img,
       elements: [ // EDIT ME — placeholder bottle elements + placeholder origins
         { id: 'neck', overlayImg: 'assets/ba-bakbuk-e1.png', label: 'This is the neck', origin: '50% 50%' },
         { id: 'body', overlayImg: 'assets/ba-bakbuk-e2.png', label: 'This is the body', origin: '50% 50%' },
@@ -510,7 +519,21 @@
   //                                              (see buildReadingBox) can
   //                                              animate the character alone
   //                                              without moving the picture
-  //   { type: 'text', text }                   — a real Hebrew letter cluster
+  //   { type: 'letter-image', letter }         — the real Hebrew letter (+
+  //                                              niqqud) round: a pre-rendered
+  //                                              PNG (Noam's Photoshop file,
+  //                                              not live CSS text), shown
+  //                                              at its native pixels — no
+  //                                              crop, same "use the source
+  //                                              as-is" idea as the mascot
+  //                                              picture window. Placed via
+  //                                              the LETTER-GLYPH window/
+  //                                              metrics system (see below,
+  //                                              mirrors the mascot one but
+  //                                              baseline-anchored on each
+  //                                              glyph's kamatz mark instead
+  //                                              of ink-centered, per Noam's
+  //                                              own reference point).
   //
   // `letter` on image slots is the LETTERS key ('sa' | 'ba') — it selects
   // which reading window (and which READING_CHAR_SCALE nudge) applies.
@@ -527,8 +550,8 @@
     const baCharacter = { type: 'character', src: ba.characterImg, letter: 'ba' };
     const saComposite = { type: 'composite', base: sa.pictureImg, overlay: sa.characterImg, letter: 'sa' };
     const baComposite = { type: 'composite', base: ba.pictureImg, overlay: ba.characterImg, letter: 'ba' };
-    const saLetter = { type: 'text', text: 'סַ' };
-    const baLetter = { type: 'text', text: 'בָּא' };
+    const saLetter = { type: 'letter-image', letter: 'sa' };
+    const baLetter = { type: 'letter-image', letter: 'ba' };
 
     return [
       // Round 1 — teacher demonstrates each name in turn.
@@ -832,9 +855,72 @@
     });
   }
 
+  // LETTER-GLYPH WINDOW/METRICS — the real-letters round's own measurement
+  // system, deliberately kept SEPARATE from readingWindowCache/
+  // readingMetricsCache above (different Maps, different functions) so
+  // nothing here can ever touch or regress the proven mascot pipeline.
+  //
+  // These are pre-rendered PNGs (Noam's Photoshop file, Noto Sans Hebrew),
+  // one letter + its niqqud baked into one flat image, all on the same
+  // 700x700 canvas (his own convention, built to match this deck's
+  // "consistent canvas size, ink found automatically" pattern). There's
+  // only one image per letter here — no separate "picture" to guarantee
+  // full display of — so the window is trivially the glyph's own full
+  // native canvas: same "no crop, ever" idea as the mascot picture window,
+  // just with nothing else to compare it to.
+  //
+  // The reference point is NOT the ink center (unlike the mascot system):
+  // Noam built every glyph file around a fixed vertical anchor — the kamatz
+  // mark sits at the same relative spot in every file — and said so
+  // directly: "my point of reference is the kamatz sign, that will be the
+  // zero." Measuring the combined ink bbox (letter + kamatz together, since
+  // they're both just non-transparent pixels in one flat file) and using
+  // its BOTTOM edge as the shared baseline is what actually honors that:
+  // it lets a tall letter (Lamed's ascender) and a short one sit on the
+  // same line while still reflecting their real, different heights, the
+  // same way printed Hebrew text uses a baseline.
+  const letterMetricsCache = new Map(); // letterId -> { size, cx, top, bottom, left, right }
+  const letterWindowCache = new Map();  // letterId -> Promise (resolved once measured)
+  function getLetterWindow(letterId) {
+    if (!letterWindowCache.has(letterId)) {
+      const L = LETTERS[letterId];
+      letterWindowCache.set(letterId, loadImageForCrop(L.letterImg).then((img) => {
+        if (!img) return null;
+        const bbox = computeInkBBoxPixels(img);
+        if (!bbox) return null;
+        const size = Math.max(1, Math.max(img.naturalWidth, img.naturalHeight));
+        letterMetricsCache.set(letterId, {
+          size,
+          top: bbox.minY,
+          bottom: bbox.maxY,
+          cx: (bbox.minX + bbox.maxX) / 2,
+          left: bbox.minX,
+          right: bbox.maxX,
+        });
+        return true;
+      }));
+    }
+    return letterWindowCache.get(letterId);
+  }
+  function letterMetrics(letterId) {
+    return letterMetricsCache.get(letterId) || null;
+  }
+  // Pulse transform-origin for a letter image: the combined letter+kamatz
+  // ink center (not the baseline, not the box center) — same reasoning as
+  // applyCharPulseOrigin above, so the pulse expands in place instead of
+  // sweeping sideways.
+  function applyLetterPulseOrigin(imgEl, letterId) {
+    const set = (m) => {
+      if (m) imgEl.style.transformOrigin = `${(m.cx / m.size) * 100}% ${((m.top + m.bottom) / 2 / m.size) * 100}%`;
+    };
+    const m = letterMetrics(letterId);
+    if (m) set(m);
+    else getLetterWindow(letterId).then(() => set(letterMetrics(letterId)));
+  }
+
   // Pulls every image src a frame references, whatever shape that frame is —
-  // including reading-pair's per-side slot specs (character/composite slots
-  // carry image srcs, text slots don't).
+  // including reading-pair's per-side slot specs (character/composite/
+  // letter-image slots carry image srcs).
   function collectFrameSrcs(f) {
     const srcs = [].concat(f.img || [], f.imgs || []);
     if (f.kind === 'reading-pair') {
@@ -842,6 +928,7 @@
         if (!slot) return;
         if (slot.type === 'composite') srcs.push(slot.base, slot.overlay);
         else if (slot.type === 'character') srcs.push(slot.src);
+        else if (slot.type === 'letter-image') srcs.push(LETTERS[slot.letter].letterImg);
       });
     }
     return srcs.filter(Boolean);
@@ -880,6 +967,8 @@
           getReadingCroppedImage(spec.letter, spec.overlay);
         } else if (spec.type === 'character') {
           getReadingCroppedImage(spec.letter, spec.src);
+        } else if (spec.type === 'letter-image') {
+          getLetterWindow(spec.letter);
         }
       });
     });
@@ -943,6 +1032,15 @@
   const READING_BOX_WIDTH_FRACTION = 0.2;
   const READING_BOX_HEIGHT_FRACTION = 0.32;
   const READING_CHAR_GAP_FRACTION = 0.05; // gap between the two CHARACTERS' facing ink edges, as a fraction of contentEl's width. This replaced the old box-edge gap (READING_GAP_FRACTION): with real asymmetric compositions, box edges said nothing about how far apart the characters LOOKED. This measures the thing Noam actually sees.
+  // LETTERS round (real Hebrew glyph PNGs) — same "how much of the screen /
+  // how close together" knobs as the mascot ones above, kept as their own
+  // constants since the two rounds are visually independent and will very
+  // likely want different values. Safe to tune freely; none of these can
+  // reintroduce a reveal jump (nothing here depends on which state a slot
+  // is in — there's only one state per letter in this round).
+  const READING_LETTER_STAGE_WIDTH_FRACTION = 0.7;  // both letters + gap, of content width
+  const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.6; // tallest letter, of content height
+  const READING_LETTER_GAP_FRACTION = 0.06; // gap between the two letters' facing ink edges (not box edges — same "what the eye sees" idea as READING_CHAR_GAP_FRACTION)
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
@@ -1051,6 +1149,20 @@
       box.appendChild(textEl);
       return box;
     }
+    if (spec.type === 'letter-image') {
+      // Shown at native pixels, no crop pipeline needed — the window IS the
+      // file's own canvas (see the LETTER-GLYPH WINDOW comment), so this is
+      // just the source PNG directly, sized/positioned by buildReadingStage.
+      const L = LETTERS[spec.letter];
+      const letterImgEl = document.createElement('img');
+      letterImgEl.className = 'reading-box-img';
+      letterImgEl.alt = L.letterImg;
+      letterImgEl.src = L.letterImg;
+      applyLetterPulseOrigin(letterImgEl, spec.letter);
+      if (isActive) letterImgEl.classList.add('reading-box--pulse');
+      box.appendChild(letterImgEl);
+      return box;
+    }
     if (spec.type === 'composite') {
       // Two separately stacked images, NOT one flattened picture — the
       // static faded picture underneath, and the character on top of it as
@@ -1145,6 +1257,7 @@
     // extend behind the neighbour's character); see the z-index note in
     // buildReadingBox for why that renders correctly.
     const isTextFrame = saSpec.type === 'text' || baSpec.type === 'text';
+    const isLetterFrame = saSpec.type === 'letter-image' || baSpec.type === 'letter-image';
     const fallbackSize = Math.min(rect.width * READING_BOX_WIDTH_FRACTION, rect.height * READING_BOX_HEIGHT_FRACTION);
     // Default layout — used verbatim by the letters round, and as the
     // pre-measurement fallback for mascot frames: the exact geometry the
@@ -1157,7 +1270,9 @@
     let saTop = centerY - fallbackSize / 2, baTop = centerY - fallbackSize / 2;
     const mSa = readingMetrics('sa');
     const mBa = readingMetrics('ba');
-    if (!isTextFrame && mSa && mBa) {
+    const lSa = letterMetrics('sa');
+    const lBa = letterMetrics('ba');
+    if (!isTextFrame && !isLetterFrame && mSa && mBa) {
       // Per-K scale factors (s_L = K * sPerK_L): equal on-screen ink for
       // both letters, with the optional per-letter hand nudge folded in.
       const sSaPerK = (READING_CHAR_SCALE.sa || 1) / mSa.ink;
@@ -1215,7 +1330,7 @@
       const y0 = (rect.height - (up + down)) / 2 + up;
       saTop = y0 - mSa.cy * sSa;
       baTop = y0 - mBa.cy * sBa;
-    } else if (!isTextFrame) {
+    } else if (!isTextFrame && !isLetterFrame) {
       // Metrics not measured yet — realistically only reachable in the
       // first moments after page load, since precomputeReadingPairAssets
       // warms them at boot and the reading phase is many taps in. Render
@@ -1223,6 +1338,74 @@
       // measurements land (no-op if the person has already moved on).
       const at = index;
       Promise.all([getReadingWindow('sa'), getReadingWindow('ba')]).then(() => {
+        if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
+          renderFrame(frames[index]);
+        }
+      });
+    } else if (isLetterFrame && lSa && lBa) {
+      // Letters round: an entirely separate layout from the mascot math
+      // above (own font/size/position decisions, per Noam). The shared
+      // reference point is NOT the ink center (as with the mascots) but
+      // the ink BOTTOM edge — Noam's own design: "my point of reference
+      // is the Kamatz sign, so that will be the zero." Both letter PNGs
+      // were authored at the same physical canvas size in one Photoshop
+      // document, so — unlike the mascots — there's no per-letter ink
+      // normalization step: both images are simply scaled by one shared
+      // factor S.
+      const gapPx = rect.width * READING_LETTER_GAP_FRACTION;
+      const widthBudget = rect.width * READING_LETTER_STAGE_WIDTH_FRACTION;
+      const heightBudget = rect.height * READING_LETTER_STAGE_HEIGHT_FRACTION;
+
+      // Height bound: both letters' ink bottoms share a baseline, so the
+      // union's height is (largest rise above it) + (largest drop below
+      // it, i.e. however far each canvas extends past its own ink-bottom).
+      const upPerS = Math.max(lSa.bottom - lSa.top, lBa.bottom - lBa.top);
+      const downPerS = Math.max(lSa.size - lSa.bottom, lBa.size - lBa.bottom);
+      let S = heightBudget / (upPerS + downPerS);
+
+      // Width bound (exact): same edge-pair approach as the mascot version,
+      // with Ba's box tentatively at x = 0.
+      const saLeftA = lBa.right - lSa.left; // sa box left = saLeftA*S + gapPx
+      const edgesRight = [
+        { a: lBa.size, g: 0 },                    // ba box right
+        { a: saLeftA + lSa.size, g: gapPx },       // sa box right
+      ];
+      const edgesLeft = [
+        { a: 0, g: 0 },              // ba box left
+        { a: saLeftA, g: gapPx },    // sa box left
+      ];
+      edgesRight.forEach((r) => edgesLeft.forEach((l) => {
+        const a = r.a - l.a;
+        const g = r.g - l.g;
+        if (a > 0 && widthBudget - g > 0) S = Math.min(S, (widthBudget - g) / a);
+      }));
+      if (!(S > 0)) S = 1; // degenerate screens only — never negative/NaN
+
+      saSize = lSa.size * S;
+      baSize = lBa.size * S;
+
+      // Horizontal: Ba at 0, Sa placed so the ink-edge gap is exact, then
+      // shift both so the union of the boxes is centered on screen.
+      baLeft = 0;
+      saLeft = lBa.right * S + gapPx - lSa.left * S;
+      const unionLeft = Math.min(baLeft, saLeft);
+      const unionRight = Math.max(baLeft + baSize, saLeft + saSize);
+      const shiftX = (rect.width - (unionRight - unionLeft)) / 2 - unionLeft;
+      baLeft += shiftX;
+      saLeft += shiftX;
+
+      // Vertical: letters share baseline y0 (their ink bottoms), the union
+      // of the boxes is centered on screen.
+      const up = Math.max((lSa.bottom - lSa.top) * S, (lBa.bottom - lBa.top) * S);
+      const down = Math.max((lSa.size - lSa.bottom) * S, (lBa.size - lBa.bottom) * S);
+      const y0 = (rect.height - (up + down)) / 2 + up;
+      saTop = y0 - lSa.bottom * S;
+      baTop = y0 - lBa.bottom * S;
+    } else if (isLetterFrame) {
+      // Metrics not measured yet — same reasoning/pattern as the mascot
+      // fallback above, using the letter-glyph windows instead.
+      const at = index;
+      Promise.all([getLetterWindow('sa'), getLetterWindow('ba')]).then(() => {
         if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
           renderFrame(frames[index]);
         }
