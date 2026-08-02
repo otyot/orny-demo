@@ -129,7 +129,15 @@
   .reading-box {
     position: absolute; /* left/top/width/height set inline by JS */
     display: flex;
-    align-items: center;
+    /* Bottom-anchored (not centered): a mascot image fills the box edge to
+       edge via .reading-box-img below (this alignment doesn't apply to it,
+       since it's positioned absolutely), but the letters round's plain text
+       is a normal in-flow child — centering it vertically in the same tall
+       square box as a mascot left a huge gap of empty box below the glyph
+       before the arrow even started, reading as "the arrow is much farther
+       from the letters than from the mascots" even though the arrow's own
+       offset is identical in both cases. */
+    align-items: flex-end;
     justify-content: center;
   }
   .reading-box-img {
@@ -156,7 +164,7 @@
     font-size: clamp(48px, 10vw, 110px);
     font-weight: 700;
     direction: rtl;
-    margin: 0;
+    margin: 0 0 10px 0;
   }
   .saba-illustration {
     max-width: 38vw;
@@ -680,42 +688,86 @@
     else imgEl.addEventListener('load', tryApply);
   }
 
-  // COMPOSITE ALIGNMENT — a plain mascot is now guaranteed centered in its
-  // box (the crop above is built symmetric around its own ink), but a
-  // composite's BASE PICTURE is left exactly as drawn, unshifted — measured
+  // COMPOSITE ALIGNMENT — a plain mascot is guaranteed centered in its box
+  // (the crop above is built symmetric around its own ink), but a
+  // composite's BASE PICTURE, left exactly as drawn, is not: measured
   // directly, sa-sal-i.png's ink center sits at (49.7%, 49.9%) of its own
   // canvas (essentially centered already) while ba-bakbuk-i.png's sits at
-  // (51%, 59.1%) — nearly 10 points lower. Same box, same top-aligned row,
+  // (51%, 59.1%) — nearly 10 points lower. Same box, same alignment rule,
   // but two different internal registrations, so Ba's bottle visibly hangs
-  // lower than Sa's hoop even though neither box has moved — that reads as
-  // "not on the same row" even though, technically, the boxes are.
-  // Fixed by translating the WHOLE composite stage (base + overlay
-  // together, as one rigid unit — never scaled, and the overlay never moves
-  // relative to the base) so its own ink lands at the box's center, exactly
-  // mirroring what the mascot crop already does for a plain character. This
-  // only touches where the pair sits inside its box, never the base/overlay
-  // relationship, so the "character hides inside its own faded picture"
-  // registration from the hiding-recall phase is completely unaffected.
-  const compositeRecenterCache = new Map(); // src -> {dx, dy} percent offsets
-  function getCompositeRecenterOffset(imgEl, src) {
-    if (compositeRecenterCache.has(src)) return compositeRecenterCache.get(src);
-    const bbox = computeInkBBoxPixels(imgEl);
-    if (!bbox) return null;
-    const w = imgEl.naturalWidth, h = imgEl.naturalHeight;
-    const offset = {
-      dx: 50 - ((bbox.minX + bbox.maxX) / 2 / w) * 100,
-      dy: 50 - ((bbox.minY + bbox.maxY) / 2 / h) * 100,
-    };
-    compositeRecenterCache.set(src, offset);
-    return offset;
+  // lower than Sa's hoop even though neither box has moved.
+  //
+  // A first attempt fixed this with a live CSS transform (translate the
+  // whole composite once its image loaded). That closed the alignment gap
+  // but created a NEW, more confusing problem: a slot's plain rendering has
+  // no transform, so the instant its composite replaced it, the transform
+  // applied and visibly nudged the content — reported (correctly) as "the
+  // arrow is affecting the images," even though the arrow itself was never
+  // the cause. A live, conditionally-applied transform is exactly the kind
+  // of thing that looks like it's reacting to something else appearing.
+  //
+  // Fixed for real by baking the correction into the PIXELS up front,
+  // before anything is ever placed in the DOM — same technique as the
+  // mascot crop above. Both the base picture and its overlay character are
+  // drawn onto ONE new canvas using the IDENTICAL crop window (same corner,
+  // same size, derived from the base's own ink so it fills
+  // MASCOT_INK_FILL_FRACTION of the result) — cropping both through the
+  // same window keeps the character exactly where it was relative to the
+  // picture (the "hides inside the picture" registration is a crop, not a
+  // transform, so it can't drift), while the flattened result is already
+  // centered, at rest, with nothing left to apply at render time. A
+  // composite's box now renders exactly like a plain mascot's: an already-
+  // correct image filling a box that never changes.
+  const compositeCropCache = new Map(); // "baseSrc|overlaySrc" -> flattened, cropped data URL
+  function loadImageForCrop(src) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
   }
-  function applyCompositeRecenter(stage, baseImgEl, src) {
-    function tryApply() {
-      const offset = getCompositeRecenterOffset(baseImgEl, src);
-      if (offset) stage.style.transform = `translate(${offset.dx.toFixed(2)}%, ${offset.dy.toFixed(2)}%)`;
+  async function getNormalizedCompositeSrc(baseSrc, overlaySrc) {
+    const key = `${baseSrc}|${overlaySrc}`;
+    if (compositeCropCache.has(key)) return compositeCropCache.get(key);
+    const [baseImg, overlayImg] = await Promise.all([loadImageForCrop(baseSrc), loadImageForCrop(overlaySrc)]);
+    if (!baseImg) return null;
+    const bbox = computeInkBBoxPixels(baseImg);
+    if (!bbox) return null;
+    const bboxW = bbox.maxX - bbox.minX;
+    const bboxH = bbox.maxY - bbox.minY;
+    const cx = (bbox.minX + bbox.maxX) / 2;
+    const cy = (bbox.minY + bbox.maxY) / 2;
+    const longest = Math.max(bboxW, bboxH) || 1;
+    const canvasSize = Math.max(1, Math.round(longest / MASCOT_INK_FILL_FRACTION));
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+    const ctx = canvas.getContext('2d');
+    try {
+      ctx.globalAlpha = 0.2; // faded base, same look as img.faded elsewhere
+      ctx.drawImage(baseImg, cx - canvasSize / 2, cy - canvasSize / 2, canvasSize, canvasSize, 0, 0, canvasSize, canvasSize);
+      if (overlayImg) {
+        ctx.globalAlpha = 1;
+        // Same crop window as the base above — this is what keeps the
+        // character registered exactly where it was drawn relative to the
+        // picture, without a separate alignment step of its own.
+        ctx.drawImage(overlayImg, cx - canvasSize / 2, cy - canvasSize / 2, canvasSize, canvasSize, 0, 0, canvasSize, canvasSize);
+      }
+      const dataUrl = canvas.toDataURL();
+      compositeCropCache.set(key, dataUrl);
+      return dataUrl;
+    } catch (e) {
+      return null; // tainted canvas or similar — falls back to unadjusted rendering
     }
-    if (baseImgEl.complete && baseImgEl.naturalWidth) tryApply();
-    else baseImgEl.addEventListener('load', tryApply);
+  }
+  // Fills an already-in-the-DOM <img> with the flattened, pre-centered
+  // composite once it's ready. Nothing shifts when this resolves — the img
+  // has no content until then, so there's no "before" state to jump from.
+  function applyCompositeCrop(imgEl, baseSrc, overlaySrc) {
+    getNormalizedCompositeSrc(baseSrc, overlaySrc).then((dataUrl) => {
+      if (dataUrl) imgEl.src = dataUrl;
+    });
   }
 
   // Pulls every image src a frame references, whatever shape that frame is —
@@ -796,9 +848,9 @@
   // adaptation, not something his single-character method ever does) needs
   // to land well under that per side to read as "a pair," not "two
   // full-size scenes crammed together."
-  const READING_BOX_WIDTH_FRACTION = 0.24;
-  const READING_BOX_HEIGHT_FRACTION = 0.38;
-  const READING_GAP_FRACTION = 0.1; // gap between the two boxes, as a fraction of contentEl's width
+  const READING_BOX_WIDTH_FRACTION = 0.2;
+  const READING_BOX_HEIGHT_FRACTION = 0.32;
+  const READING_GAP_FRACTION = 0.05; // gap between the two boxes, as a fraction of contentEl's width
   const READING_ARROW_GAP = 14; // px between a box's bottom edge and its arrow
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
@@ -901,15 +953,15 @@
       return box;
     }
     if (spec.type === 'composite') {
-      const baseImg = imgOrPlaceholder(spec.base, 'reading-box-img faded');
-      const overlayImg = imgOrPlaceholder(spec.overlay, 'reading-box-img');
-      box.appendChild(baseImg);
-      box.appendChild(overlayImg);
-      // Recenter the composite AS A WHOLE (base + overlay together, never
-      // scaled, never moved relative to each other) so its own ink lands at
-      // the box's center — see applyCompositeRecenter above for why this is
-      // needed even though the box itself never moves.
-      if (baseImg.tagName === 'IMG') applyCompositeRecenter(box, baseImg, spec.base);
+      // A single flattened, pre-centered image (base + overlay baked
+      // together, faded base included) — see applyCompositeCrop above for
+      // why this replaced a live transform. No separate faded/overlay
+      // layers here; the fade is already baked into the pixels.
+      const img = document.createElement('img');
+      img.className = 'reading-box-img';
+      img.alt = spec.base;
+      box.appendChild(img);
+      applyCompositeCrop(img, spec.base, spec.overlay);
       return box;
     }
     // Plain-mascot-alone: crop to a square centered on its own ink, sized so
