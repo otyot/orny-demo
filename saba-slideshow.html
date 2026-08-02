@@ -496,15 +496,13 @@
   // changes until it's its turn.
   //
   // Slot shapes (used for both `sa` and `ba` on every reading-pair frame):
-  //   { type: 'character', src, refPicture }   — plain mascot image, cropped
-  //                                              through that letter's own
-  //                                              picture's crop window (see
-  //                                              getCroppedImage) so it's
-  //                                              pixel-identical in size and
-  //                                              position to how it appears
-  //                                              inside that letter's
-  //                                              composite — no size jump
-  //                                              when the picture appears.
+  //   { type: 'character', src }               — plain mascot image, cropped
+  //                                              through its OWN ink window
+  //                                              (see the crop-system
+  //                                              comment above) so Sa and Ba
+  //                                              stay visually consistent
+  //                                              with EACH OTHER when shown
+  //                                              side by side alone.
   //   { type: 'composite', base, overlay }     — mascot at full opacity over
   //                                              its picture faded to 20%,
   //                                              rendered as two separately
@@ -522,8 +520,8 @@
     const sa = LETTERS.sa;
     const ba = LETTERS.ba;
 
-    const saCharacter = { type: 'character', src: sa.characterImg, refPicture: sa.pictureImg };
-    const baCharacter = { type: 'character', src: ba.characterImg, refPicture: ba.pictureImg };
+    const saCharacter = { type: 'character', src: sa.characterImg };
+    const baCharacter = { type: 'character', src: ba.characterImg };
     const saComposite = { type: 'composite', base: sa.pictureImg, overlay: sa.characterImg };
     const baComposite = { type: 'composite', base: ba.pictureImg, overlay: ba.characterImg };
     const saLetter = { type: 'text', text: 'סַ' };
@@ -702,32 +700,32 @@
     }
   }
 
-  // UNIFIED CROP SYSTEM — one crop window per PICTURE (Sal/Bakbuk), reused
-  // for every image that needs to line up with it: the picture itself
-  // (composite's base layer), the character stacked on top of it
-  // (composite's overlay layer), AND that same character shown ALONE with
-  // no picture behind it (a reading-pair's plain "character" slot).
+  // CROP SYSTEM — two DIFFERENT crop windows are used on purpose, each
+  // solving a different problem, both keyed off the same generic
+  // getCroppedImage(referenceSrc, imgSrc) helper:
   //
-  // This replaced an earlier version with TWO SEPARATE crop algorithms: a
-  // mascot-alone crop centered on the CHARACTER's own ink, and a composite
-  // crop centered on the PICTURE's ink. Those two windows are legitimately
-  // different sizes (a small character's own bounding box is much tighter
-  // than the full picture's), so the same character rendered through each
-  // one came out at two different apparent sizes — meaning the character
-  // visibly changed size the instant its picture appeared behind it, on top
-  // of (and easy to mistake for part of) the intended pulse animation. Noam
-  // caught this directly: "it changes size for no reason... first it scales
-  // with the image underneath... something is wrong there from the root."
+  //   - A plain "character alone" slot crops the character through a window
+  //     centered on ITS OWN ink (getCroppedImage(src, src)) — this is what
+  //     makes Sa and Ba look consistently sized/centered next to each other
+  //     on the intro/your-turn screens, regardless of how differently each
+  //     character sits within its own picture.
+  //   - A composite's base + overlay both crop through a window centered on
+  //     the PICTURE's ink (getCroppedImage(base, base) and
+  //     getCroppedImage(base, overlay)) — this keeps the character exactly
+  //     where it's actually drawn relative to the picture (the "hides
+  //     inside the picture" registration), at its true embedded scale.
   //
-  // Fixed at the root by always deriving the crop window from the PICTURE,
-  // even when only the character is being shown — so a reading-pair's
-  // "character" slot for a given letter always passes that letter's own
-  // `refPicture` alongside `src`, and gets cropped through the exact same
-  // window (same cache entry, bit-for-bit identical output) as that same
-  // character's composite overlay. The only visual difference between
-  // "character alone" and "composite" is then really just whether the faded
-  // picture layer is present behind it — the character itself never moves
-  // or resizes going from one to the other.
+  // A same-letter character's OWN crop and its EMBEDDED (within-composite)
+  // scale are therefore generally NOT identical — a character can look
+  // bigger alone than it does once its picture reveals it nested inside a
+  // bigger scene, because that's its actual drawn scale in that picture. An
+  // attempt to force both states through the picture's window (so the
+  // character would never change size when the picture appears) was tried
+  // and reverted: it broke the alone-state pairing instead, since Sa's and
+  // Ba's characters sit at very different scales within their own pictures
+  // (confirmed visually — Sa's plain circle came out much smaller than Ba's
+  // plain bracket, when both used to match). Trading a working comparison
+  // for a smoother reveal wasn't the right trade — this reverts back.
   const cropWindowCache = new Map(); // referenceSrc -> Promise<window|null>
   function getCropWindow(referenceSrc) {
     if (!cropWindowCache.has(referenceSrc)) {
@@ -762,7 +760,7 @@
       [f.sa, f.ba].forEach((slot) => {
         if (!slot) return;
         if (slot.type === 'composite') srcs.push(slot.base, slot.overlay);
-        else if (slot.type === 'character') srcs.push(slot.src, slot.refPicture);
+        else if (slot.type === 'character') srcs.push(slot.src);
       });
     }
     return srcs.filter(Boolean);
@@ -800,7 +798,7 @@
           getCroppedImage(spec.base, spec.base);
           getCroppedImage(spec.base, spec.overlay);
         } else if (spec.type === 'character') {
-          getCroppedImage(spec.refPicture, spec.src);
+          getCroppedImage(spec.src, spec.src);
         }
       });
     });
@@ -978,16 +976,16 @@
       applyCroppedSrc(overlayImg, spec.base, spec.overlay);
       return box;
     }
-    // Plain-mascot-alone: cropped through spec.refPicture's window (that
-    // letter's own picture), NOT its own ink — see the crop-system comment
-    // above for why this is what keeps it pixel-identical to how it appears
-    // inside spec.refPicture's composite a tap later, with zero size change.
+    // Plain-mascot-alone: cropped through ITS OWN ink window — see the
+    // crop-system comment above for why this (not the picture's window) is
+    // what keeps Sa and Ba looking consistently sized/centered next to each
+    // other on the intro/your-turn screens.
     const charImg = document.createElement('img');
     charImg.className = 'reading-box-img';
     charImg.alt = spec.src;
     if (isActive) charImg.classList.add('reading-box--pulse');
     box.appendChild(charImg);
-    applyCroppedSrc(charImg, spec.refPicture, spec.src);
+    applyCroppedSrc(charImg, spec.src, spec.src);
     return box;
   }
   // Places an already-built box at fixed pixel coordinates within the
