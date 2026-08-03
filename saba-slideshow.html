@@ -1074,10 +1074,20 @@
   // likely want different values. Safe to tune freely; none of these can
   // reintroduce a reveal jump (nothing here depends on which state a slot
   // is in — there's only one state per letter in this round).
-  const READING_LETTER_STAGE_WIDTH_FRACTION = 0.38;  // both letters + gap, of content width
-  const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.336; // tallest letter, of content height
+  const READING_LETTER_STAGE_WIDTH_FRACTION = 0.45;  // both letters + gap, of content width
+  const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.40; // tallest letter, of content height
   const READING_LETTER_GAP_FRACTION = 0.06; // gap between the two letters' facing ink edges (not box edges — same "what the eye sees" idea as READING_CHAR_GAP_FRACTION)
   const READING_ALEPH_GAP_FRACTION = 0.02; // Aleph sits close to Ba's left side, like normal in-word letter spacing in printed Hebrew — tighter than 0.035 (Noam: move it right, closer in, to about book-like spacing) but not as tight as 0.015 (that read as touching/merged)
+  // Noam overlaid a screenshot of the mascot characters/pictures on top of
+  // the letters screen: the letters group sits noticeably right of where
+  // the characters actually are, and a bit small. Measured via ink
+  // centers (1200-wide reference content box): mascot Sa/Ba ink centers
+  // sit at roughly x=686/486, the letters group's centers were sitting at
+  // x=729/576 — off by ~45-90px to the right. This shifts the whole group
+  // left by a flat fraction of content width to compensate; not derived
+  // from any per-letter ink math (deliberately — it's a simple constant
+  // nudge, easy to re-tune from a future comparison screenshot).
+  const READING_LETTER_GROUP_SHIFT_X_FRACTION = -0.05;
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
@@ -1457,7 +1467,7 @@
       alephLeft = lBa.left * S - alephGapPx - lAleph.right * S;
       const unionLeft = Math.min(baLeft, saLeft, alephLeft);
       const unionRight = Math.max(baLeft + baSize, saLeft + saSize, alephLeft + alephSize);
-      const shiftX = (rect.width - (unionRight - unionLeft)) / 2 - unionLeft;
+      const shiftX = (rect.width - (unionRight - unionLeft)) / 2 - unionLeft + rect.width * READING_LETTER_GROUP_SHIFT_X_FRACTION;
       baLeft += shiftX;
       saLeft += shiftX;
       alephLeft += shiftX;
