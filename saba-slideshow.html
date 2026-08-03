@@ -1691,18 +1691,30 @@
       videoEl.loop = false;
       videoEl.preload = 'auto';
       stage.insertBefore(videoEl, stage.firstChild);
-      // Confetti fires on the clip's real 'ended' event, not a guessed
-      // delay — so the burst always lands exactly when Grandad actually
-      // stops and settles on his wave, however long the clip runs. Origin
-      // is #content's own live-measured center (same rect buildReadingStage
-      // uses), which sits right on the word/Grandad group — not the left
-      // edge he walked in from, and not tied to a moving element's start
-      // point. Also fires on 'error' — a broken clip shouldn't silently
-      // cancel the celebration payoff.
+      // Confetti timing — measured directly from the actual clip's frames
+      // (saba-wave-compressed.mp4, 5.6s total): he's stopped and standing
+      // by ~2.8s, starts lifting his arm at ~3.6s, and is fully into the
+      // wave by ~3.8s. Firing at CONFETTI_TRIGGER_TIME below means the
+      // burst lands right as the wave begins, not two seconds after it's
+      // already over. Origin is #content's own live-measured center (same
+      // rect buildReadingStage uses), which sits right on the word/
+      // Grandad group — not the left edge he walked in from, and not tied
+      // to a moving element's start point.
+      const CONFETTI_TRIGGER_TIME = 3.6;
+      let confettiFired = false;
       const fireConfetti = () => {
+        if (confettiFired) return;
+        confettiFired = true;
         const contentRect = contentEl.getBoundingClientRect();
         burstConfetti(contentRect.left + contentRect.width / 2, contentRect.top + contentRect.height / 2);
       };
+      videoEl.addEventListener('timeupdate', () => {
+        if (videoEl.currentTime >= CONFETTI_TRIGGER_TIME) fireConfetti();
+      });
+      // Safety net, not the primary trigger: guarantees the celebration
+      // still happens even if 'timeupdate' is ever skipped, or the clip
+      // fails to play at all — a broken/short clip shouldn't silently
+      // cancel the payoff. confettiFired guards against firing twice.
       videoEl.addEventListener('ended', fireConfetti);
       videoEl.addEventListener('error', fireConfetti);
     }
