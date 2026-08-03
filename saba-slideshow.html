@@ -145,12 +145,18 @@
     object-fit: contain;
   }
   /* ATTENTION CUE — replaces the arrow entirely (see buildReadingStage's
-     comment for why): the active side pulses in place, twice, instead of a
-     separate arrow element appearing next to it. Nothing is added to or
-     removed from the DOM for this — it's a specific element animating — so
-     there's no separate element whose appearance/disappearance could ever
-     be mistaken for affecting its neighbor. Scales from and back to 100%
-     (never from/to 0) — a "pulse," not a "grow from nothing."
+     comment for why): the active side pulses in place ONCE, instead of a
+     separate arrow element appearing next to it. Single pop, not a double
+     bounce — Noam's call: this plays during a manual, tap-your-own-pace
+     rhythm drill (sa-ba, sa-ba, then the same rhythm again with the real
+     letters), and a double bounce broke that rhythm/felt cumbersome. This
+     is purely how long the pop itself takes to play once triggered — it
+     has nothing to do with how long the slide stays on screen, which is
+     entirely up to the tap. Nothing is added to or removed from the DOM
+     for this — it's a specific element animating — so there's no separate
+     element whose appearance/disappearance could ever be mistaken for
+     affecting its neighbor. Scales from and back to 100% (never from/to
+     0) — a "pulse," not a "grow from nothing."
      Applied to the ONE focal element inside a box — the character image
      (plain or composite-overlay) or the letter text — never to a
      composite's faded base picture and never to the box itself. This
@@ -158,12 +164,10 @@
      only the character/letter being called out moves. */
   @keyframes readingPulse {
     0%, 100% { transform: scale(1); }
-    25% { transform: scale(1.28); }
-    50% { transform: scale(1); }
-    75% { transform: scale(1.28); }
+    50% { transform: scale(1.28); }
   }
   .reading-box--pulse {
-    animation: readingPulse 1.6s ease-in-out 1;
+    animation: readingPulse 0.8s ease-in-out 1;
   }
   .hebrew-text {
     font-size: clamp(48px, 10vw, 110px);
