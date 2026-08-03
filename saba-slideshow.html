@@ -177,6 +177,17 @@
     object-fit: contain;
     display: block;
   }
+  /* Saba reveal — Granddad's clip fills the same stage as the word (see
+     buildSabaRevealStage), scaled/centered like any other stage content.
+     Inserted as the stage's first child, so normal DOM paint order alone
+     puts it under the letter boxes — no z-index needed. */
+  .saba-reveal-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
   #caption-bar {
     height: var(--caption-h);
     flex-shrink: 0;
@@ -305,6 +316,10 @@
     // right after Bet reading right-to-left) — see aleph_letter_img usage
     // in buildReadingStage below.
     aleph_letter_img: 'assets/aleph.png',
+    // Saba reveal — Granddad walks in, waves, holds (no loop). Background
+    // pre-corrected to pure white and audio stripped; see saba-reveal
+    // frame/case below for how it layers behind the word.
+    saba_wave_video: 'assets/saba-wave-compressed.mp4',
   };
 
   // ---------------------------------------------------------------------
@@ -601,9 +616,12 @@
       { id: 'reading-letters-combine', kind: 'reading-pair', sa: saLetter, ba: baLetter, active: null,
         text: 'What did we get?' },
 
-      // Final reveal — the gap closes into one real word, illustration alongside.
-      { id: 'saba-reveal', kind: 'saba-reveal', img: ASSETS.saba_illustration, text: 'סַבָּא',
-        moment: 'onFinalWordRevealed' },
+      // Final reveal — same word, same geometry as reading-letters-combine
+      // (built via buildReadingStage so it doesn't jump on this tap), with
+      // Granddad's clip layered in behind it. frame.text is reference-only,
+      // same convention as the teaching-cycle frames above.
+      { id: 'saba-reveal', kind: 'saba-reveal', sa: saLetter, ba: baLetter,
+        video: ASSETS.saba_wave_video, text: 'סַבָּא', moment: 'onFinalWordRevealed' },
     ];
   }
 
@@ -953,7 +971,7 @@
   // letter-image slots carry image srcs).
   function collectFrameSrcs(f) {
     const srcs = [].concat(f.img || [], f.imgs || []);
-    if (f.kind === 'reading-pair') {
+    if (f.kind === 'reading-pair' || f.kind === 'saba-reveal') {
       [f.sa, f.ba].forEach((slot) => {
         if (!slot) return;
         if (slot.type === 'composite') srcs.push(slot.base, slot.overlay);
@@ -994,7 +1012,7 @@
   // is already sitting in cache before it's ever needed on screen.
   function precomputeReadingPairAssets(allFrames) {
     allFrames.forEach((f) => {
-      if (f.kind !== 'reading-pair') return;
+      if (f.kind !== 'reading-pair' && f.kind !== 'saba-reveal') return;
       [f.sa, f.ba].forEach((spec) => {
         if (!spec) return;
         if (spec.type === 'composite') {
@@ -1534,6 +1552,30 @@
     return stage;
   }
 
+  // Saba reveal: reuses buildReadingStage verbatim for the word (identical
+  // geometry to reading-letters-combine — no jump on this tap), then layers
+  // Granddad's clip in behind it. Video goes in as the stage's FIRST child
+  // via insertBefore, so normal paint order puts it under the already-
+  // appended letter boxes — Noam explicitly okayed the word sitting in
+  // front of/overlapping the animation. Autoplay muted, no loop: Granddad
+  // walks in, waves, and holds on his last frame ("just a cycle once and
+  // stops," not a loop).
+  function buildSabaRevealStage(frame) {
+    const stage = buildReadingStage(frame.sa, frame.ba, null);
+    if (frame.video) {
+      const videoEl = document.createElement('video');
+      videoEl.className = 'saba-reveal-video';
+      videoEl.src = frame.video;
+      videoEl.autoplay = true;
+      videoEl.muted = true;
+      videoEl.playsInline = true;
+      videoEl.loop = false;
+      videoEl.preload = 'auto';
+      stage.insertBefore(videoEl, stage.firstChild);
+    }
+    return stage;
+  }
+
   function renderFrame(frame) {
     contentEl.innerHTML = '';
 
@@ -1578,18 +1620,9 @@
       }
       case 'saba-reveal': {
         // Content in its own right (like 'yay'), not narration — the word
-        // itself renders. Illustration alongside; swap frame.img for a clip
-        // later without touching this case. Appended text-then-image so that
-        // .reading-pair's row-reverse still lands the word on the right and
-        // the illustration on the left, matching the reference slide.
-        const wrap = el('div', 'reading-pair');
-        const textSlot = el('div', 'reading-slot');
-        textSlot.appendChild(el('p', 'hebrew-text', frame.text));
-        const imgSlot = el('div', 'reading-slot');
-        imgSlot.appendChild(imgOrPlaceholder(frame.img, 'saba-illustration'));
-        wrap.appendChild(textSlot);
-        wrap.appendChild(imgSlot);
-        contentEl.appendChild(wrap);
+        // itself renders, via the same letter-image stage as the reading
+        // round, with Granddad's clip layered in behind it.
+        contentEl.appendChild(buildSabaRevealStage(frame));
         break;
       }
       default: {
