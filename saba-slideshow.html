@@ -1077,7 +1077,7 @@
   const READING_LETTER_STAGE_WIDTH_FRACTION = 0.38;  // both letters + gap, of content width
   const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.336; // tallest letter, of content height
   const READING_LETTER_GAP_FRACTION = 0.06; // gap between the two letters' facing ink edges (not box edges — same "what the eye sees" idea as READING_CHAR_GAP_FRACTION)
-  const READING_ALEPH_GAP_FRACTION = 0.035; // Aleph sits close to Ba's left side — noticeably tighter than the Sa/Ba gap, since together they're one visual unit — but not so tight the strokes crowd into an illegible blob (0.015 was too tight in practice: readable ink-to-ink distance, but the specific glyph shapes visually read as touching)
+  const READING_ALEPH_GAP_FRACTION = 0.02; // Aleph sits close to Ba's left side, like normal in-word letter spacing in printed Hebrew — tighter than 0.035 (Noam: move it right, closer in, to about book-like spacing) but not as tight as 0.015 (that read as touching/merged)
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
