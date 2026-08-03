@@ -233,6 +233,22 @@
     font-size: 20px;
     z-index: 20;
   }
+  /* LOCKED DESIGN DECISION — future "game UI" chrome layer (top bar,
+     avatar, decorative icons — no login/points, just look-and-feel):
+     build it exactly like #hud/#frame-id/#back-btn above — position:
+     fixed, living outside #stage's flex flow entirely, never inside
+     #content and never reserving real space in the flex column. The
+     reading-round layout (mascots, letters, Grandad's clip) computes its
+     pixel geometry from #content's LIVE measured rect
+     (contentEl.getBoundingClientRect() in buildReadingStage/
+     buildCompositeStage) — that math was tuned by eye and by pixel
+     measurement across many iterations. A fixed-position overlay never
+     changes that rect, so it's guaranteed not to disturb any of the
+     teaching-phase alignment. If a bar ever needs to actually claim real
+     document-flow space instead of overlaying (shrinking #content), that's
+     still fine, but it changes the rect and means re-verifying the
+     reading-round frames afterward — don't assume it's free the way a
+     fixed-position overlay is. */
   .blank-line {
     display: inline-block;
     min-width: 3em;
@@ -320,6 +336,11 @@
     // pre-corrected to pure white and audio stripped; see saba-reveal
     // frame/case below for how it layers behind the word.
     saba_wave_video: 'assets/saba-wave-compressed.mp4',
+    // "Level complete" sting — tune + light clapping, ~6s, plays once the
+    // instant this slide loads (the tap that gets here is a real user
+    // gesture, so autoplay-with-sound is allowed). Confetti timing is
+    // separate/later — see buildSabaRevealStage.
+    saba_level_complete_sound: 'assets/level-complete.MP3',
   };
 
   // ---------------------------------------------------------------------
@@ -621,7 +642,8 @@
       // Granddad's clip layered in behind it. frame.text is reference-only,
       // same convention as the teaching-cycle frames above.
       { id: 'saba-reveal', kind: 'saba-reveal', sa: saLetter, ba: baLetter,
-        video: ASSETS.saba_wave_video, text: 'סַבָּא', moment: 'onFinalWordRevealed' },
+        video: ASSETS.saba_wave_video, sound: ASSETS.saba_level_complete_sound,
+        text: 'סַבָּא', moment: 'onFinalWordRevealed' },
     ];
   }
 
@@ -1572,6 +1594,23 @@
       videoEl.loop = false;
       videoEl.preload = 'auto';
       stage.insertBefore(videoEl, stage.firstChild);
+    }
+    if (frame.sound) {
+      // "Level complete" sting — plays once, immediately, the instant this
+      // slide is built (not muted: getting here is a real tap/user
+      // gesture, so browsers allow autoplay with sound here, unlike the
+      // video above). Not attached to the DOM at all — it doesn't need to
+      // be seen, just heard, and this keeps it out of the stage's paint
+      // order entirely.
+      const soundEl = new Audio(frame.sound);
+      soundEl.loop = false;
+      const playPromise = soundEl.play();
+      // Real browsers always return a Promise here; guarded defensively
+      // since not every environment does (jsdom's play() returns
+      // undefined) — ignore autoplay-policy rejections either way.
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {});
+      }
     }
     return stage;
   }
