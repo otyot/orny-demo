@@ -233,22 +233,37 @@
     font-size: 20px;
     z-index: 20;
   }
-  /* LOCKED DESIGN DECISION — future "game UI" chrome layer (top bar,
-     avatar, decorative icons — no login/points, just look-and-feel):
-     build it exactly like #hud/#frame-id/#back-btn above — position:
-     fixed, living outside #stage's flex flow entirely, never inside
-     #content and never reserving real space in the flex column. The
-     reading-round layout (mascots, letters, Grandad's clip) computes its
-     pixel geometry from #content's LIVE measured rect
-     (contentEl.getBoundingClientRect() in buildReadingStage/
-     buildCompositeStage) — that math was tuned by eye and by pixel
-     measurement across many iterations. A fixed-position overlay never
-     changes that rect, so it's guaranteed not to disturb any of the
-     teaching-phase alignment. If a bar ever needs to actually claim real
-     document-flow space instead of overlaying (shrinking #content), that's
-     still fine, but it changes the rect and means re-verifying the
-     reading-round frames afterward — don't assume it's free the way a
-     fixed-position overlay is. */
+  /* LOCKED DESIGN DECISION — "game UI" chrome layer (top bar, avatar,
+     decorative icons later — no login/points, just look-and-feel), first
+     inhabited by the saba-reveal confetti burst below: built exactly like
+     #hud/#frame-id/#back-btn above — position: fixed, living outside
+     #stage's flex flow entirely, never inside #content and never
+     reserving real space in the flex column. The reading-round layout
+     (mascots, letters, Grandad's clip) computes its pixel geometry from
+     #content's LIVE measured rect (contentEl.getBoundingClientRect() in
+     buildReadingStage/buildCompositeStage) — that math was tuned by eye
+     and by pixel measurement across many iterations. A fixed-position
+     overlay never changes that rect, so it's guaranteed not to disturb
+     any of the teaching-phase alignment. If a bar ever needs to actually
+     claim real document-flow space instead of overlaying (shrinking
+     #content), that's still fine, but it changes the rect and means
+     re-verifying the reading-round frames afterward — don't assume it's
+     free the way a fixed-position overlay is. */
+  #ui-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none; /* click-through — #stage's own click listener
+                              is what advances the deck; this layer must
+                              never intercept that tap, now or for
+                              whatever gets added here later. */
+    z-index: 25; /* above #hud/#frame-id/#back-btn (20), above #content */
+  }
+  #confetti-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
   .blank-line {
     display: inline-block;
     min-width: 3em;
@@ -265,6 +280,10 @@
 <div id="hud"></div>
 <div id="frame-id"></div>
 <div id="back-btn">&#8249;</div>
+<!-- UI OVERLAY LAYER — see the "LOCKED DESIGN DECISION" comment above.
+     Fixed, click-through, lives outside #stage entirely. Confetti canvas
+     is the first thing in it; future game-UI chrome joins it here. -->
+<div id="ui-overlay"><canvas id="confetti-canvas"></canvas></div>
 
 <script>
 /* =========================================================================
@@ -1057,6 +1076,84 @@
   const hudEl = document.getElementById('hud');
   const frameIdEl = document.getElementById('frame-id');
 
+  // ---------------------------------------------------------------------
+  // UI OVERLAY LAYER — #ui-overlay (see the "LOCKED DESIGN DECISION" CSS
+  // comment). Lives outside #stage/#content entirely, so nothing here can
+  // ever touch the teaching-phase frame system, and the teaching-phase
+  // rect math can never be disturbed by anything added here. First (and
+  // for now only) resident: a small confetti fountain for the saba-reveal
+  // celebration. Self-contained canvas + requestAnimationFrame loop, no
+  // external library — kept deliberately modest (one burst, ~70 pieces,
+  // a couple of seconds), per Noam: "keeping it small, not too many
+  // pyrotechnics."
+  // ---------------------------------------------------------------------
+  const confettiCanvas = document.getElementById('confetti-canvas');
+  const confettiCtx = confettiCanvas.getContext && confettiCanvas.getContext('2d');
+  let confettiParticles = [];
+  let confettiRafId = null;
+
+  function resizeConfettiCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    confettiCanvas.width = Math.round(window.innerWidth * dpr);
+    confettiCanvas.height = Math.round(window.innerHeight * dpr);
+    if (confettiCtx) confettiCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resizeConfettiCanvas);
+  resizeConfettiCanvas();
+
+  const CONFETTI_COLORS = ['#ff5a5f', '#ffb400', '#2ecc71', '#3498db', '#9b59b6', '#ff8fab'];
+
+  // Fountain, not a wall — mostly-upward cone of velocities, real gravity,
+  // fades out as each piece nears the end of its own lifespan. The
+  // requestAnimationFrame loop below stops itself the instant every
+  // particle has expired (filtered out, array empties, no reschedule) —
+  // it can't run forever regardless of how burstConfetti gets called.
+  function burstConfetti(originX, originY) {
+    if (!confettiCtx) return;
+    const count = 70;
+    for (let i = 0; i < count; i++) {
+      const angle = (-Math.PI / 2) + (Math.random() - 0.5) * (Math.PI * 0.9);
+      const speed = 4 + Math.random() * 7;
+      confettiParticles.push({
+        x: originX, y: originY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: 5 + Math.random() * 5,
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 0.3,
+        life: 0,
+        maxLife: 90 + Math.random() * 30,
+      });
+    }
+    if (!confettiRafId) confettiRafId = requestAnimationFrame(stepConfetti);
+  }
+
+  function stepConfetti() {
+    const gravity = 0.18;
+    confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+    confettiParticles = confettiParticles.filter((p) => p.life < p.maxLife);
+    confettiParticles.forEach((p) => {
+      p.vy += gravity;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rotation += p.rotationSpeed;
+      p.life += 1;
+      confettiCtx.save();
+      confettiCtx.globalAlpha = Math.max(0, 1 - p.life / p.maxLife);
+      confettiCtx.translate(p.x, p.y);
+      confettiCtx.rotate(p.rotation);
+      confettiCtx.fillStyle = p.color;
+      confettiCtx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+      confettiCtx.restore();
+    });
+    if (confettiParticles.length > 0) {
+      confettiRafId = requestAnimationFrame(stepConfetti);
+    } else {
+      confettiRafId = null;
+    }
+  }
+
   function imgOrPlaceholder(src, extraClass) {
     if (!src) {
       const d = document.createElement('div');
@@ -1594,6 +1691,20 @@
       videoEl.loop = false;
       videoEl.preload = 'auto';
       stage.insertBefore(videoEl, stage.firstChild);
+      // Confetti fires on the clip's real 'ended' event, not a guessed
+      // delay — so the burst always lands exactly when Grandad actually
+      // stops and settles on his wave, however long the clip runs. Origin
+      // is #content's own live-measured center (same rect buildReadingStage
+      // uses), which sits right on the word/Grandad group — not the left
+      // edge he walked in from, and not tied to a moving element's start
+      // point. Also fires on 'error' — a broken clip shouldn't silently
+      // cancel the celebration payoff.
+      const fireConfetti = () => {
+        const contentRect = contentEl.getBoundingClientRect();
+        burstConfetti(contentRect.left + contentRect.width / 2, contentRect.top + contentRect.height / 2);
+      };
+      videoEl.addEventListener('ended', fireConfetti);
+      videoEl.addEventListener('error', fireConfetti);
     }
     if (frame.sound) {
       // "Level complete" sting — plays once, immediately, the instant this
