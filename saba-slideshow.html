@@ -907,6 +907,21 @@
   // reliably center the two letters' actual visible ink. Missing keys
   // default to 0 (no change) — Sa/Ba's pair key was never added, so their
   // approved geometry is untouched.
+  // Per-letter horizontal nudge for the solo-character reveal frame only
+  // (buildCycleFrames' `${id}-character` frame — "this is Ka, hiding in the
+  // Karnaf…"). That stage centers the character PNG's full 700x700 canvas
+  // on screen; for Sa/Ba/Na the ink happens to sit close enough to the
+  // canvas's own horizontal middle that this reads as centered, but Ka's
+  // sketch sits far over to one side of ITS canvas (ink bbox center at
+  // ~82% of canvas width), so centering the canvas leaves Ka visibly
+  // off-center on screen. Fraction is of the character stage's own
+  // rendered width, computed from each PNG's real ink bbox (Python/PIL,
+  // alpha>10 threshold) so it scales correctly at any screen size. Only
+  // touches the solo-character frame — the SAME character image also
+  // appears as an overlay on the picture in the anchor/redrill frames
+  // later in the loop, where its position is fixed by hand-registration
+  // against the picture and must not be nudged independently of it.
+  const SOLO_CHARACTER_CENTER_SHIFT = { ka: -0.32, na: -0.02 };
   const READING_CHAR_GAP_EXTRA = { 'ka|na': 0.03 }; // extra gap fraction, added on top of READING_CHAR_GAP_FRACTION, between Ka/Na's facing ink edges — Noam: spread them apart more so the eye can land on each one separately.
   const READING_CHAR_CENTER_SHIFT = { 'ka|na': -0.075 }; // fraction of screen width to shift the whole Ka+Na pair left — Noam: treat the LETTERS round as "zero" and land the characters as close to that same spot as possible, so the transition from character to letter reads as the same object, not a jump. Measured off Noam's own overlay comparison (characters screenshot laid over the letters screenshot): Ka's ink wanted to move left by more than Na's, so this is the average of the two — an exact match isn't possible with one shared shift (per Noam: doesn't need to land on the pixel).
   const READING_CHAR_VERTICAL_SHIFT = { 'ka|na': 0.06 }; // fraction of screen height to shift the whole Ka+Na pair DOWN, same "land on the letters" reasoning as the horizontal shift above, just on the Y axis. Missing keys default to 0 — Sa/Ba never needed this and stay untouched.
@@ -1895,6 +1910,11 @@
       case 'solo-character':
       case 'recall-prompt': {
         const stage = buildCompositeStage(frame.img, [], frame.fade);
+        if (frame.kind === 'solo-character') {
+          const letterId = frame.id.split('-')[0];
+          const shift = SOLO_CHARACTER_CENTER_SHIFT[letterId];
+          if (shift) stage.style.transform = `translateX(${shift * 100}%)`;
+        }
         contentEl.appendChild(stage);
         break;
       }
