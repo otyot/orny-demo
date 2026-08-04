@@ -1558,18 +1558,24 @@
   // "סַבָּא קָנָה פָּרָה" (Saba Kana Para — "Grandfather bought a cow"), read
   // right to left same as every word before it. Same "fit a fixed budget,
   // one shared scale" approach as the letters round above, just generalized
-  // from 2-3 glyphs to a 9-glyph chain — see buildSentenceStage. Three gap
-  // sizes, not one: a taught letter sits close to its silent companion
-  // (tightest), a bit further from its word-partner, and a visibly bigger
-  // gap between words themselves (so the eye can tell where one word ends
-  // and the next begins) — same "facing ink edges, fixed fraction of screen
-  // width" idea as every other gap constant in this file, just three of
-  // them chained instead of one.
+  // from 2-3 glyphs to a 9-glyph chain — see buildSentenceStage.
+  //
+  // Gaps: Noam's call after seeing the first pass — this round is meant to
+  // read as ORDINARY TEXT, not as the wide, deliberately-separated teaching
+  // layout every earlier round uses (that spacing exists specifically to
+  // let a child's eye land on one letter at a time while it's still being
+  // taught; here the letters are already known, so the sentence should look
+  // like a real word/sentence, letters touching within a word like normal
+  // Hebrew orthography, with only an ordinary word-space between words).
+  // Zero intra-word/companion gap does exactly that: it butts each glyph's
+  // ink edge directly against its neighbor's, no artificial air between
+  // them. Collapsing those gaps also shrinks the row's total width a lot —
+  // per Noam, that's the point, not a side effect to correct for.
   const SENTENCE_STAGE_WIDTH_FRACTION = 0.92;  // the whole 9-glyph row, of content width
   const SENTENCE_STAGE_HEIGHT_FRACTION = 0.40; // tallest letter, of content height — same budget as the single-word letters round
-  const SENTENCE_LETTER_GAP_FRACTION = READING_LETTER_GAP_FRACTION;      // between a word's own two taught letters
-  const SENTENCE_COMPANION_GAP_FRACTION = READING_SILENT_LETTER_GAP_FRACTION; // between a taught letter and its silent companion
-  const SENTENCE_WORD_GAP_FRACTION = 0.11;     // between one word and the next — roughly double the intra-word gap, so words read as distinct chunks
+  const SENTENCE_LETTER_GAP_FRACTION = 0;      // a word's own two taught letters touch — ordinary in-word spacing, not the teaching-round gap
+  const SENTENCE_COMPANION_GAP_FRACTION = 0;   // silent companion butts directly against its host, same reasoning
+  const SENTENCE_WORD_GAP_FRACTION = 0.025;    // an ordinary word-space between one word and the next — enough to read as separate words, nowhere near the teaching round's gap
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
