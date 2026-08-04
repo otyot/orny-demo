@@ -908,7 +908,8 @@
   // default to 0 (no change) — Sa/Ba's pair key was never added, so their
   // approved geometry is untouched.
   const READING_CHAR_GAP_EXTRA = { 'ka|na': 0.03 }; // extra gap fraction, added on top of READING_CHAR_GAP_FRACTION, between Ka/Na's facing ink edges — Noam: spread them apart more so the eye can land on each one separately.
-  const READING_CHAR_CENTER_SHIFT = { 'ka|na': -0.05 }; // fraction of screen width to shift the whole Ka+Na pair left — Noam: the pair reads as sitting right of center; recentering on the two letters' visible ink (not their padded canvases) pulls it back.
+  const READING_CHAR_CENTER_SHIFT = { 'ka|na': -0.075 }; // fraction of screen width to shift the whole Ka+Na pair left — Noam: treat the LETTERS round as "zero" and land the characters as close to that same spot as possible, so the transition from character to letter reads as the same object, not a jump. Measured off Noam's own overlay comparison (characters screenshot laid over the letters screenshot): Ka's ink wanted to move left by more than Na's, so this is the average of the two — an exact match isn't possible with one shared shift (per Noam: doesn't need to land on the pixel).
+  const READING_CHAR_VERTICAL_SHIFT = { 'ka|na': 0.06 }; // fraction of screen height to shift the whole Ka+Na pair DOWN, same "land on the letters" reasoning as the horizontal shift above, just on the Y axis. Missing keys default to 0 — Sa/Ba never needed this and stay untouched.
   // letterId -> measurements of where that letter's character sits within
   // its window, taken off the real pixels when the window is computed (see
   // getReadingWindow). All in window coordinates:
@@ -1645,7 +1646,7 @@
       // however far each composition actually reaches.
       const up = Math.max(mSa.cy * sSa, mBa.cy * sBa);
       const down = Math.max((mSa.size - mSa.cy) * sSa, (mBa.size - mBa.cy) * sBa);
-      const y0 = (rect.height - (up + down)) / 2 + up;
+      const y0 = (rect.height - (up + down)) / 2 + up + rect.height * (READING_CHAR_VERTICAL_SHIFT[pairKey] || 0);
       saTop = y0 - mSa.cy * sSa;
       baTop = y0 - mBa.cy * sBa;
     } else if (!isTextFrame && !isLetterFrame) {
