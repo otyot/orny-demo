@@ -366,10 +366,12 @@
     saba_level_complete_sound: 'assets/level-complete.MP3',
     // Kana reveal — the boy walks in from the side (profile), turns to
     // face forward, and settles holding the teddy bear + shopping bag
-    // ("bought" — קָנָה). 5s total, white background, faint/near-silent
-    // audio track left untouched since buildSabaRevealStage always mutes
-    // the element anyway. See kana-reveal frame/buildDeck below for the
-    // confetti timing measured against this specific clip.
+    // ("bought" — קָנָה). 5s, white background, downscaled + audio
+    // stripped (same treatment as saba-wave-compressed.mp4 above — the
+    // original export was portrait 900x1024 at ~3MB; this is 640x728 at
+    // ~290KB, same visual quality). See kana-reveal frame/buildDeck below
+    // for the confetti timing and left-edge positioning measured against
+    // this specific clip.
     kana_video: 'assets/kana.mp4',
 
     // ---------------------------------------------------------------------
@@ -757,6 +759,7 @@
       // function's historical name.
       { id: opts.revealId, kind: 'word-reveal', sa: rightLetter, ba: leftLetter,
         video: opts.video, sound: opts.sound, confettiAt: opts.confettiAt,
+        videoPosition: opts.videoPosition,
         text: opts.word, moment: 'onFinalWordRevealed' },
     ];
   }
@@ -773,19 +776,31 @@
         word: 'סַבָּא',
       }),
 
-      // Chapter 2 — Ka + Na -> Kana ("bought"). No sound clip yet — video
-      // only, same as everything else this generic reveal supports.
+      // Chapter 2 — Ka + Na -> Kana ("bought"). Same level-complete sting
+      // reused from chapter 1 (no separate clip for this chapter).
       ...buildCycleFrames(LETTERS.ka),
       ...buildCycleFrames(LETTERS.na),
       ...buildHidingRecall(['ka', 'na']),
       ...buildReadingPhase('ka', 'na', {
         idPrefix: 'kana-', revealId: 'kana-reveal',
-        video: ASSETS.kana_video,
+        video: ASSETS.kana_video, sound: ASSETS.saba_level_complete_sound,
         // Measured directly from kana.mp4 (5s total): he's mid-stride/
         // still turning through ~1.8s, feet planted and fully settled
         // facing forward by ~1.9-2.0s — firing here lands the burst right
         // as he "arrives", same idea as Saba's arm-lift trigger below.
         confettiAt: 2.0,
+        // kana.mp4 is portrait (900x1024) inside a landscape stage, so
+        // object-fit:contain letterboxes it with big empty gutters left
+        // and right of center. Saba's clip is wide enough to use the full
+        // stage width, so he visually enters from the screen's left edge;
+        // to get the same "entering from the side" read here, pull the
+        // whole letterboxed video left instead of leaving it centered
+        // (15%, of the ~647px total gutter at current stage size, puts
+        // its left edge roughly 100px off the screen edge — close in
+        // without touching it. object-position, not a transform, since
+        // this only needs to shift where object-fit centers the content,
+        // not move the stage's own box).
+        videoPosition: '15% center',
         word: 'קָנָה',
       }),
     ];
@@ -1858,6 +1873,11 @@
       videoEl.playsInline = true;
       videoEl.loop = false;
       videoEl.preload = 'auto';
+      // Where object-fit:contain centers the video within any leftover
+      // letterbox gutter — only matters when the clip's own aspect ratio
+      // doesn't match the stage's, so this is a no-op (stays dead center)
+      // for any clip that doesn't set one, Saba's included.
+      videoEl.style.objectPosition = frame.videoPosition || '50% center';
       stage.insertBefore(videoEl, stage.firstChild);
       // Confetti timing — measured directly from each clip's own frames
       // (see the comment at each frame's confettiAt value in buildDeck),
