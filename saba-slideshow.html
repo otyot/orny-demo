@@ -370,8 +370,11 @@
     // stripped (same treatment as saba-wave-compressed.mp4 above — the
     // original export was portrait 900x1024 at ~3MB; this is 640x728 at
     // ~290KB, same visual quality). See kana-reveal frame/buildDeck below
-    // for the confetti timing and left-edge positioning measured against
-    // this specific clip.
+    // for the confetti timing measured against this specific clip (a
+    // left-edge object-position was tried here too, to echo Saba's
+    // walk-in, but at this clip's letterbox width it pushed the boy under
+    // the letter boxes and hid the teddy bear — Noam: revert. Left
+    // centered, same as Saba).
     kana_video: 'assets/kana.mp4',
 
     // ---------------------------------------------------------------------
@@ -392,6 +395,27 @@
     // instead of He, but that was a compositing bug in the comparison
     // script, not a real problem with this asset.
     he_letter_img:   'assets/he.png',
+
+    // ---------------------------------------------------------------------
+    // CHAPTER 3 — Pa + Ra -> Para (פָּרָה, "cow"), completing the full-lesson
+    // sentence Saba Kana Para ("Grandfather bought a cow"). Same asset
+    // conventions as chapters 1-2 above.
+    // ---------------------------------------------------------------------
+    pa_character:   'assets/pa-parpar-c.png',
+    parpar_picture: 'assets/pa-parpar-i.png',
+    ra_character:   'assets/ra-rakevet-c.png',
+    rakevet_picture: 'assets/ra-rakevet-i.png',
+    pa_letter_img:  'assets/pe-kamatz-dgsh.png',
+    ra_letter_img:  'assets/reish-kamatz.png',
+    // Para reuses the same silent He as Kana (LETTERS.he) — פרה is spelled
+    // Pe-Resh-He, He again carrying no sound/niqqud of its own.
+    //
+    // Para reveal — the cow stands still (idle blink/tail-swish/bell-sway,
+    // no walk-in arc like Saba/Kana's clips), so there's no "arrival" beat
+    // to sync confetti to — see confettiAt in buildDeck below. 5s,
+    // downscaled + audio stripped, same treatment as the other two reveal
+    // clips (original was 1176x784 at ~1.4MB; this is 960x640 at ~245KB).
+    para_video: 'assets/para.mp4',
   };
 
   // ---------------------------------------------------------------------
@@ -492,13 +516,48 @@
         { id: 'tongue', overlayImg: 'assets/na-nahash-e2.png', label: 'This is the tongue', origin: '56% 79%' },
       ],
     },
-    // Silent He — see ASSETS.he_letter_img's comment: the file itself
-    // looks mislabeled (reads as a Nun shape) and needs a check from
-    // Noam, but the plumbing is complete and correct either way.
+    // Silent He — shared by both Kana and Para (both end in He). See
+    // ASSETS.he_letter_img's comment: shape confirmed fine, no issue.
     he: {
       id: 'he',
       hasNiqqud: false,
       letterImg: ASSETS.he_letter_img,
+    },
+
+    // -----------------------------------------------------------------
+    // CHAPTER 3 — Pa + Ra -> Para. Same as chapter 2's note: element
+    // labels/origins measured directly off the actual artwork (ink-bbox
+    // of each overlay, and of that overlay composited onto the picture to
+    // confirm which body part it lands on), labels are my best reading —
+    // happy to correct against Noam's intended breakdown.
+    // -----------------------------------------------------------------
+    pa: {
+      id: 'pa',
+      name: 'Pa',
+      characterImg: ASSETS.pa_character,
+      pictureImg: ASSETS.parpar_picture,
+      pictureName: 'Parpar',
+      letterImg: ASSETS.pa_letter_img,
+      elements: [
+        { id: 'wing', overlayImg: 'assets/pa-parpar-e1.png', label: 'This is the wing', origin: '69% 35%' },
+        { id: 'eye',  overlayImg: 'assets/pa-parpar-e2.png', label: 'This is the eye',  origin: '72% 28%' },
+        { id: 'spot', overlayImg: 'assets/pa-parpar-e3.png', label: 'This is the spot', origin: '70% 70%' },
+      ],
+    },
+    ra: {
+      id: 'ra',
+      name: 'Ra',
+      characterImg: ASSETS.ra_character,
+      pictureImg: ASSETS.rakevet_picture,
+      pictureName: 'Rakevet',
+      letterImg: ASSETS.ra_letter_img,
+      // Para (פרה) ends in a silent He — same role Aleph/He played for
+      // Saba/Kana. Reuses the SAME LETTERS.he entry (no new asset needed).
+      silentCompanion: 'he',
+      elements: [
+        { id: 'smoke',    overlayImg: 'assets/ra-rakevet-e1.png', label: 'This is the smoke',    origin: '34% 24%' },
+        { id: 'chimney',  overlayImg: 'assets/ra-rakevet-e2.png', label: 'This is the chimney',  origin: '42% 44%' },
+      ],
     },
   };
 
@@ -800,6 +859,22 @@
         // fallback for any frame that doesn't set one).
         word: 'קָנָה',
       }),
+
+      // Chapter 3 — Pa + Ra -> Para ("cow"), completing the lesson sentence
+      // Saba Kana Para. Same level-complete sting reused again.
+      ...buildCycleFrames(LETTERS.pa),
+      ...buildCycleFrames(LETTERS.ra),
+      ...buildHidingRecall(['pa', 'ra']),
+      ...buildReadingPhase('pa', 'ra', {
+        idPrefix: 'para-', revealId: 'para-reveal',
+        video: ASSETS.para_video, sound: ASSETS.saba_level_complete_sound,
+        // para.mp4's cow is already settled in an idle pose for the whole
+        // clip (blink/tail-swish/bell-sway, no walk-in arc to sync to
+        // unlike Saba/Kana) — firing shortly after the clip starts is
+        // enough for the reveal to register before celebrating.
+        confettiAt: 1.0,
+        word: 'פָּרָה',
+      }),
     ];
   }
 
@@ -956,7 +1031,15 @@
   // applyStoryLoopCenterShift) so every current and future frame kind that
   // goes through buildCompositeStage picks it up automatically — adding a
   // letter here is enough, no per-case wiring needed or to remember.
-  const STORY_LOOP_CENTER_SHIFT = { ka: -0.32, na: -0.02 };
+  //
+  // Pa/Ra measured the same way ahead of time (Noam asked to keep centering
+  // consistent from the start rather than fix it after the fact like Ka/Na
+  // needed): Pa's wing-sketch ink bbox center sits at 69% of its canvas
+  // width, Ra's smoke-sketch at 34% — both meaningfully off-center (in the
+  // same range that got Ka fixed), so both get a shift here: -0.19 for Pa,
+  // +0.16 for Ra. Formula is just shift = 0.5 - (ink_center / canvas_width)
+  // for whichever direction reduces that letter's own deviation to ~0.
+  const STORY_LOOP_CENTER_SHIFT = { ka: -0.32, na: -0.02, pa: -0.19, ra: 0.16 };
   const READING_CHAR_GAP_EXTRA = { 'ka|na': 0.03 }; // extra gap fraction, added on top of READING_CHAR_GAP_FRACTION, between Ka/Na's facing ink edges — Noam: spread them apart more so the eye can land on each one separately.
   const READING_CHAR_CENTER_SHIFT = { 'ka|na': -0.075 }; // fraction of screen width to shift the whole Ka+Na pair left — Noam: treat the LETTERS round as "zero" and land the characters as close to that same spot as possible, so the transition from character to letter reads as the same object, not a jump. Measured off Noam's own overlay comparison (characters screenshot laid over the letters screenshot): Ka's ink wanted to move left by more than Na's, so this is the average of the two — an exact match isn't possible with one shared shift (per Noam: doesn't need to land on the pixel).
   const READING_CHAR_VERTICAL_SHIFT = { 'ka|na': 0.06 }; // fraction of screen height to shift the whole Ka+Na pair DOWN, same "land on the letters" reasoning as the horizontal shift above, just on the Y axis. Missing keys default to 0 — Sa/Ba never needed this and stay untouched.
