@@ -933,21 +933,33 @@
   // reliably center the two letters' actual visible ink. Missing keys
   // default to 0 (no change) — Sa/Ba's pair key was never added, so their
   // approved geometry is untouched.
-  // Per-letter horizontal nudge for the solo-character reveal frame only
-  // (buildCycleFrames' `${id}-character` frame — "this is Ka, hiding in the
-  // Karnaf…"). That stage centers the character PNG's full 700x700 canvas
-  // on screen; for Sa/Ba/Na the ink happens to sit close enough to the
-  // canvas's own horizontal middle that this reads as centered, but Ka's
-  // sketch sits far over to one side of ITS canvas (ink bbox center at
-  // ~82% of canvas width), so centering the canvas leaves Ka visibly
-  // off-center on screen. Fraction is of the character stage's own
+  // Per-letter horizontal nudge for the ENTIRE per-letter story loop
+  // (buildCycleFrames' `${id}-character`, `${id}-picture`, every
+  // `${id}-anchor-*`/`${id}-redrill-*` frame, and the recall prompt/answer
+  // pair — every frame whose id starts with this letter and renders
+  // through buildCompositeStage). Each of these frames centers its own
+  // PNG's full 700x700 canvas on screen; for Sa/Ba/Na the ink happens to
+  // sit close enough to the canvas's own horizontal middle that this reads
+  // as centered, but Ka's sketch sits far over to one side of ITS canvas
+  // (ink bbox center at ~82% of canvas width), so centering the canvas
+  // leaves Ka visibly off-center on screen. Fraction is of the stage's own
   // rendered width, computed from each PNG's real ink bbox (Python/PIL,
-  // alpha>10 threshold) so it scales correctly at any screen size. Only
-  // touches the solo-character frame — the SAME character image also
-  // appears as an overlay on the picture in the anchor/redrill frames
-  // later in the loop, where its position is fixed by hand-registration
-  // against the picture and must not be nudged independently of it.
-  const SOLO_CHARACTER_CENTER_SHIFT = { ka: -0.32, na: -0.02 };
+  // alpha>10 threshold) so it scales correctly at any screen size.
+  //
+  // CORE INVARIANT — do not apply this to only some of a letter's frames:
+  // the character sketch shown alone in `${id}-character` is the SAME ink
+  // shape hand-registered into the full picture (e.g. Ka's two strokes
+  // ARE the rhino's ear + horn in karnaf_picture) — Noam: "Ka, the
+  // character, and the picture are always perfectly aligned pixel to
+  // pixel." Both PNGs share one canvas/registration, so identical
+  // block-centering keeps them aligned automatically; shifting only one
+  // of them (as an earlier pass here mistakenly did, only touching
+  // solo-character) breaks that alignment the instant the picture reveals.
+  // Applied as one shared step in renderFrame (search
+  // applyStoryLoopCenterShift) so every current and future frame kind that
+  // goes through buildCompositeStage picks it up automatically — adding a
+  // letter here is enough, no per-case wiring needed or to remember.
+  const STORY_LOOP_CENTER_SHIFT = { ka: -0.32, na: -0.02 };
   const READING_CHAR_GAP_EXTRA = { 'ka|na': 0.03 }; // extra gap fraction, added on top of READING_CHAR_GAP_FRACTION, between Ka/Na's facing ink edges — Noam: spread them apart more so the eye can land on each one separately.
   const READING_CHAR_CENTER_SHIFT = { 'ka|na': -0.075 }; // fraction of screen width to shift the whole Ka+Na pair left — Noam: treat the LETTERS round as "zero" and land the characters as close to that same spot as possible, so the transition from character to letter reads as the same object, not a jump. Measured off Noam's own overlay comparison (characters screenshot laid over the letters screenshot): Ka's ink wanted to move left by more than Na's, so this is the average of the two — an exact match isn't possible with one shared shift (per Noam: doesn't need to land on the pixel).
   const READING_CHAR_VERTICAL_SHIFT = { 'ka|na': 0.06 }; // fraction of screen height to shift the whole Ka+Na pair DOWN, same "land on the letters" reasoning as the horizontal shift above, just on the Y axis. Missing keys default to 0 — Sa/Ba never needed this and stay untouched.
@@ -1927,6 +1939,20 @@
     return stage;
   }
 
+  // Shared by every buildCompositeStage-based frame kind below (solo-
+  // character, picture-reveal, anchor, blank, recall-prompt, recall-answer)
+  // — see the STORY_LOOP_CENTER_SHIFT comment above for why this MUST be
+  // applied identically to all of a letter's frames, never to a subset.
+  // frame.id always starts with the letter id by convention
+  // (buildCycleFrames/buildHidingRecall: `${id}-character`, `${id}-picture`,
+  // `${id}-anchor-*`, etc.), so this needs no per-frame-kind branching —
+  // one lookup covers every frame this letter will ever produce.
+  function applyStoryLoopCenterShift(stage, frame) {
+    const letterId = frame.id.split('-')[0];
+    const shift = STORY_LOOP_CENTER_SHIFT[letterId];
+    if (shift) stage.style.transform = `translateX(${shift * 100}%)`;
+  }
+
   function renderFrame(frame) {
     contentEl.innerHTML = '';
 
@@ -1942,23 +1968,21 @@
       case 'solo-character':
       case 'recall-prompt': {
         const stage = buildCompositeStage(frame.img, [], frame.fade);
-        if (frame.kind === 'solo-character') {
-          const letterId = frame.id.split('-')[0];
-          const shift = SOLO_CHARACTER_CENTER_SHIFT[letterId];
-          if (shift) stage.style.transform = `translateX(${shift * 100}%)`;
-        }
+        applyStoryLoopCenterShift(stage, frame);
         contentEl.appendChild(stage);
         break;
       }
       case 'picture-reveal':
       case 'recall-answer': {
         const stage = buildCompositeStage(frame.img, []);
+        applyStoryLoopCenterShift(stage, frame);
         contentEl.appendChild(stage);
         break;
       }
       case 'anchor':
       case 'blank': {
         const stage = buildCompositeStage(frame.imgs[0], frame.imgs.slice(1), frame.fadeBase, frame.animateSrc, frame.animateOrigin);
+        applyStoryLoopCenterShift(stage, frame);
         contentEl.appendChild(stage);
         break;
       }
