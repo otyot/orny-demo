@@ -1040,7 +1040,7 @@
   // +0.16 for Ra. Formula is just shift = 0.5 - (ink_center / canvas_width)
   // for whichever direction reduces that letter's own deviation to ~0.
   const STORY_LOOP_CENTER_SHIFT = { ka: -0.32, na: -0.02, pa: -0.19, ra: 0.16 };
-  const READING_CHAR_GAP_EXTRA = { 'ka|na': 0.03 }; // extra gap fraction, added on top of READING_CHAR_GAP_FRACTION, between Ka/Na's facing ink edges — Noam: spread them apart more so the eye can land on each one separately.
+  const READING_CHAR_GAP_EXTRA = { 'ka|na': 0.03, 'pa|ra': 0.03 }; // extra gap fraction, added on top of READING_CHAR_GAP_FRACTION, between a pair's facing ink edges — Noam: spread them apart more so the eye can land on each one separately. Measured: Pa/Ra's default (unextended) gap is pixel-identical to Sa/Ba's own default gap (both ~66.7px on a 1333px-wide stage — this constant guarantees an absolute-pixel gap regardless of which letters are in play), yet Noam still read it as tighter than the Ka/Na and Sa/Ba reference screenshots he sent — Pa's wing and Ra's smoke shapes apparently read as visually "closer" than their ink bounding boxes are. Reusing Ka/Na's exact extra (rather than inventing a new number) keeps the two "spread" pairs consistent with each other, per Noam's own "consistency always" note elsewhere in this session. The pair stays centered regardless of this value — shiftX below always re-centers the union of the boxes after the gap is applied, so widening the gap can't push the pair off-center.
   const READING_CHAR_CENTER_SHIFT = { 'ka|na': -0.075 }; // fraction of screen width to shift the whole Ka+Na pair left — Noam: treat the LETTERS round as "zero" and land the characters as close to that same spot as possible, so the transition from character to letter reads as the same object, not a jump. Measured off Noam's own overlay comparison (characters screenshot laid over the letters screenshot): Ka's ink wanted to move left by more than Na's, so this is the average of the two — an exact match isn't possible with one shared shift (per Noam: doesn't need to land on the pixel).
   // fraction of screen height to shift a pair DOWN, same "land on the
   // letters" reasoning as the horizontal shift above, just on the Y axis.
@@ -1489,6 +1489,13 @@
   // from any per-letter ink math (deliberately — it's a simple constant
   // nudge, easy to re-tune from a future comparison screenshot).
   const READING_LETTER_GROUP_SHIFT_X_FRACTION = -0.05;
+  // Per-pair multiplicative correction on top of the letters round's shared
+  // fit-to-budget scale S — see where this is applied (search
+  // READING_LETTER_SCALE) for why Ka/Na's own ink proportions make the
+  // shared formula pick a bigger S than Sa/Ba's or Pa/Ra's, unprompted.
+  // Missing keys default to 1 (no change) — Sa/Ba and Pa/Ra already land in
+  // the same ballpark as each other and don't need this.
+  const READING_LETTER_SCALE = { 'ka|na': 0.8967 };
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
@@ -1825,6 +1832,7 @@
       // (READING_SILENT_LETTER_GAP_FRACTION, much tighter than the Sa/Ba
       // gap) since the two are one visual unit; the Sa/Ba gap stays
       // exactly as tuned before any companion existed.
+      const pairKey = `${saSpec.letter}|${baSpec.letter}`;
       const gapPx = rect.width * READING_LETTER_GAP_FRACTION;
       const companionGapPx = rect.width * READING_SILENT_LETTER_GAP_FRACTION;
       const widthBudget = rect.width * READING_LETTER_STAGE_WIDTH_FRACTION;
@@ -1868,6 +1876,18 @@
         if (a > 0 && widthBudget - g > 0) S = Math.min(S, (widthBudget - g) / a);
       }));
       if (!(S > 0)) S = 1; // degenerate screens only — never negative/NaN
+      // Ka/Na's own ink (Nun's vowel mark sits narrow and close-in) leaves
+      // more spare width than Sa/Ba's or Pa/Ra's letters do at the same
+      // gap/budget, so the shared width-bound formula above naturally lets
+      // Ka/Na's S grow larger — same box-fitting math, just fed a narrower
+      // union, producing a visibly bigger word (measured ~309px box vs.
+      // Sa/Ba's ~268px and Pa/Ra's ~287px). Noam: "For some reason, Kana is
+      // bigger than the other two... please match Kana back to the size of
+      // the other two." One multiplicative correction, applied after S is
+      // otherwise finalized so every downstream measurement (box sizes,
+      // companion size, centering) stays internally consistent — brings
+      // Ka/Na's box down to ~277px, the midpoint of the other two.
+      S *= (READING_LETTER_SCALE[pairKey] || 1);
 
       saSize = lSa.size * S;
       baSize = lBa.size * S;
