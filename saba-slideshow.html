@@ -896,7 +896,7 @@
   // This deck runs over https via GitHub Pages, where reading pixel data
   // back out of a same-origin canvas is allowed, so the ink bounds can be
   // detected automatically instead of hand-tuned per asset.
-  const READING_CHAR_SCALE = { sa: 1, ba: 1, ka: 0.55, na: 1 }; // per-letter hand nudge, edit freely (missing keys default to 1 — see buildReadingStage). Ka's rough sketch has much thinner ink relative to its own canvas than Na's, so at 1/1 its automatically-computed box came out ~1.8x wider than Na's, which read as the two mascots overlapping/nesting instead of sitting side by side. 0.55 brings Ka's box footprint back in line with Na's.
+  const READING_CHAR_SCALE = { sa: 1, ba: 1, ka: 0.55, na: 0.55 }; // per-letter hand nudge, edit freely (missing keys default to 1 — see buildReadingStage). Ka and Na are both scaled down together (same value) so their on-screen ink height stays equal (on-screen ink height = K * SCALE_letter, independent of that letter's own ink-to-canvas ratio — equal SCALE values is what keeps the two characters reading as "the same size" to a child, which matters more here than their boxes/full-picture canvases matching in footprint; Noam: boxes/pictures differing in size is fine, the characters must not). 0.55 was chosen to match Ka's already-approved on-screen size after the pair-spacing fix; Na was brought down to meet it.
   // Per-PAIR nudges for the mascot ("character") round only, keyed by
   // "rightId|leftId" — for when the automatic ink-edge gap (always exactly
   // READING_CHAR_GAP_FRACTION, provably, regardless of source art) still
