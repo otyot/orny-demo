@@ -291,8 +291,11 @@
 
 <script>
 /* =========================================================================
-   SABA TEACHING SLIDESHOW — Pass 1 (functional)
-   Zuriel Yahav method: Sa + Ba -> Saba
+   SABA TEACHING SLIDESHOW
+   Zuriel Yahav method. Chapter 1: Sa + Ba -> Saba. Chapter 2: Ka + Na -> Kana.
+   Both chapters share the same generic frame-building functions below —
+   see buildReadingPhase/buildReadingStage, parameterized over any letter
+   pair plus an optional silent "companion" letter (Aleph for Ba, He for Na).
 
    HOW TO EDIT
    -----------
@@ -304,16 +307,14 @@
    2) LETTERS / PARTS: each letter has an ordered "parts" list (label text
       for each anchor point in its picture). Edit labels/order freely —
       the whole cycle (reveal, anchor, re-drill, blank, recall) rebuilds
-      itself from this data. Sa and Ba currently use PLACEHOLDER part
-      labels (handle/body/weave, neck/body/base) — swap in the real
-      breakdown whenever you have it.
+      itself from this data.
 
    3) CAPTIONS: CAPTIONS[frameId] = 'subtitle text'. Leave '' for silence.
       Press the "i" key while viewing the deck to show each frame's id in
       the top-left corner, so you know which id to paste text against.
 
-   4) MOMENTS: MOMENTS.onX(...) functions are called at key beats but do
-      nothing yet — Pass 2 hooks confetti/sound/animation here.
+   4) MOMENTS: MOMENTS.onX(...) functions are called at key beats — see
+      buildSabaRevealStage for the confetti/sound hookup on word-reveal.
 
    NAVIGATION (for you, while teaching)
    -------------------------------------
