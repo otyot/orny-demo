@@ -416,6 +416,13 @@
     // downscaled + audio stripped, same treatment as the other two reveal
     // clips (original was 1176x784 at ~1.4MB; this is 960x640 at ~245KB).
     para_video: 'assets/para.mp4',
+    // Final full-sentence celebration ("סַבָּא קָנָה פָּרָה" — Granddad bought a
+    // cow), played after the sentence-reading round below. Noam is making
+    // this clip separately and will drop it in later — filename agreed on
+    // ahead of time so wiring it in later is just adding the file, no code
+    // change. Falls back gracefully (see buildFinalRevealStage) if the file
+    // isn't there yet: no video element renders, sound/confetti still fire.
+    sentence_reveal_video: 'assets/saba-kana-para.mp4',
   };
 
   // ---------------------------------------------------------------------
@@ -823,6 +830,31 @@
     ];
   }
 
+  // FINAL SENTENCE ROUND — the capstone after all three chapters: the whole
+  // taught sentence "סַבָּא קָנָה פָּרָה" (Grandfather bought a cow) sits still on
+  // screen first, then each tap pulses the next taught letter in reading
+  // order (Sa, Ba, Ka, Na, Pa, Ra — the exact order each was first taught),
+  // one at a time, so the child calls out each letter they already know
+  // inside the full sentence — same attention cue used throughout this
+  // whole deck (see .reading-box--pulse), no new interaction language.
+  // Ends on the same still sentence once more, then the final celebration.
+  function buildFinalSentencePhase() {
+    const pulseOrder = ['sa', 'ba', 'ka', 'na', 'pa', 'ra'];
+    return [
+      { id: 'sentence-intro', kind: 'sentence-reading', active: null,
+        text: 'סַבָּא קָנָה פָּרָה' },
+      ...pulseOrder.map((id) => ({
+        id: `sentence-pulse-${id}`, kind: 'sentence-reading', active: id,
+        text: `${LETTERS[id].name}!`,
+      })),
+      { id: 'sentence-outro', kind: 'sentence-reading', active: null,
+        text: 'סַבָּא קָנָה פָּרָה' },
+      { id: 'sentence-reveal', kind: 'sentence-reveal',
+        video: ASSETS.sentence_reveal_video, sound: ASSETS.saba_level_complete_sound,
+        confettiAt: 1.0, text: 'סַבָּא קָנָה פָּרָה' },
+    ];
+  }
+
   function buildDeck() {
     return [
       // Chapter 1 — Sa + Ba -> Saba ("grandfather").
@@ -875,6 +907,12 @@
         confettiAt: 1.0,
         word: 'פָּרָה',
       }),
+
+      // Chapter 4 — the capstone: read all three taught words together as
+      // the actual sentence they spell, "סַבָּא קָנָה פָּרָה" (Grandfather bought
+      // a cow). Noam: "the child should be able to recognize the letters in
+      // front of him" — see buildFinalSentencePhase.
+      ...buildFinalSentencePhase(),
     ];
   }
 
@@ -1288,6 +1326,16 @@
         }
       });
     }
+    if (f.kind === 'sentence-reading') {
+      // All 6 taught letters + all 3 silent companions used in the final
+      // sentence row (see SENTENCE_LAYOUT, defined later near
+      // buildSentenceStage — listed by id directly here rather than
+      // referenced, since this function runs at page load, before that
+      // later const has been evaluated), regardless of which one (if any)
+      // is pulsing this particular frame — the geometry never changes
+      // across a tap, so every glyph is always on screen.
+      ['sa', 'ba', 'ka', 'na', 'pa', 'ra', 'aleph', 'he'].forEach((id) => srcs.push(LETTERS[id].letterImg));
+    }
     return srcs.filter(Boolean);
   }
   function preloadAllImages(allFrames) {
@@ -1315,7 +1363,15 @@
   // one-time cost happen silently in the background at load, so every crop
   // is already sitting in cache before it's ever needed on screen.
   function precomputeReadingPairAssets(allFrames) {
+    let sentenceWarmed = false;
     allFrames.forEach((f) => {
+      if (f.kind === 'sentence-reading' && !sentenceWarmed) {
+        // Same 8-id list as collectFrameSrcs above (and the same reason it's
+        // spelled out here rather than reading SENTENCE_LAYOUT — that const
+        // is declared later, near buildSentenceStage, after this runs).
+        ['sa', 'ba', 'ka', 'na', 'pa', 'ra', 'aleph', 'he'].forEach((id) => getLetterWindow(id));
+        sentenceWarmed = true;
+      }
       if (f.kind !== 'reading-pair' && f.kind !== 'word-reveal') return;
       [f.sa, f.ba].forEach((spec) => {
         if (!spec) return;
@@ -1496,6 +1552,24 @@
   // Missing keys default to 1 (no change) — Sa/Ba and Pa/Ra already land in
   // the same ballpark as each other and don't need this.
   const READING_LETTER_SCALE = { 'ka|na': 0.8967 };
+  // FINAL SENTENCE ROUND — the last chapter, after Sa/Ba, Ka/Na, and Pa/Ra
+  // have each been taught: all 9 real letter glyphs (6 taught + 3 silent
+  // companions) laid out in one row as the actual taught sentence
+  // "סַבָּא קָנָה פָּרָה" (Saba Kana Para — "Grandfather bought a cow"), read
+  // right to left same as every word before it. Same "fit a fixed budget,
+  // one shared scale" approach as the letters round above, just generalized
+  // from 2-3 glyphs to a 9-glyph chain — see buildSentenceStage. Three gap
+  // sizes, not one: a taught letter sits close to its silent companion
+  // (tightest), a bit further from its word-partner, and a visibly bigger
+  // gap between words themselves (so the eye can tell where one word ends
+  // and the next begins) — same "facing ink edges, fixed fraction of screen
+  // width" idea as every other gap constant in this file, just three of
+  // them chained instead of one.
+  const SENTENCE_STAGE_WIDTH_FRACTION = 0.92;  // the whole 9-glyph row, of content width
+  const SENTENCE_STAGE_HEIGHT_FRACTION = 0.40; // tallest letter, of content height — same budget as the single-word letters round
+  const SENTENCE_LETTER_GAP_FRACTION = READING_LETTER_GAP_FRACTION;      // between a word's own two taught letters
+  const SENTENCE_COMPANION_GAP_FRACTION = READING_SILENT_LETTER_GAP_FRACTION; // between a taught letter and its silent companion
+  const SENTENCE_WORD_GAP_FRACTION = 0.11;     // between one word and the next — roughly double the intra-word gap, so words read as distinct chunks
   const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
 
   // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
@@ -1975,6 +2049,199 @@
     return stage;
   }
 
+  // FINAL SENTENCE ROUND — one row of all 9 real letter glyphs (6 taught +
+  // 3 silent companions) spelling out "סַבָּא קָנָה פָּרָה", right to left:
+  //   [He] Ra  Pa    [He] Na  Ka    [Aleph] Ba  Sa
+  //   \_ Para word _/  \_ Kana word _/  \___ Saba word ___/
+  // (screen left to right; Hebrew is read right to left, so Saba — spoken
+  // first — sits on the right, same as every reading-pair round before it.)
+  //
+  // Geometry follows the exact same "fixed-budget, one shared scale, exact
+  // ink-edge gaps" approach as buildReadingStage's letters round just above
+  // — the only real difference is a straight left-to-right chain (9 links)
+  // instead of that round's 2-or-3-box case, and three different gap sizes
+  // instead of one (see the SENTENCE_*_GAP_FRACTION comment above). Once
+  // built, the geometry never changes across a tap — same invariant as
+  // everywhere else in this deck — only which single taught letter carries
+  // .reading-box--pulse changes, exactly mirroring how the reading-pair
+  // round cues attention without an arrow.
+  const SENTENCE_LAYOUT = [
+    // { id, taught, gapBefore } — gapBefore is the gap between this glyph
+    // and the previous one in the chain; null for the first glyph.
+    { id: 'he', taught: false, gapBefore: null },        // Para's companion
+    { id: 'ra', taught: true, gapBefore: 'companion' },
+    { id: 'pa', taught: true, gapBefore: 'letter' },
+    { id: 'he', taught: false, gapBefore: 'word' },       // Kana's companion
+    { id: 'na', taught: true, gapBefore: 'companion' },
+    { id: 'ka', taught: true, gapBefore: 'letter' },
+    { id: 'aleph', taught: false, gapBefore: 'word' },    // Saba's companion
+    { id: 'ba', taught: true, gapBefore: 'companion' },
+    { id: 'sa', taught: true, gapBefore: 'letter' },
+  ];
+  const SENTENCE_GAP_FRACTIONS = {
+    companion: SENTENCE_COMPANION_GAP_FRACTION,
+    letter: SENTENCE_LETTER_GAP_FRACTION,
+    word: SENTENCE_WORD_GAP_FRACTION,
+  };
+  function buildSentenceStage(frame) {
+    const stage = el('div', 'reading-stage');
+    const rect = contentEl.getBoundingClientRect();
+    stage.style.width = `${Math.round(rect.width)}px`;
+    stage.style.height = `${Math.round(rect.height)}px`;
+
+    const metrics = SENTENCE_LAYOUT.map((item) => letterMetrics(item.id));
+    if (metrics.some((m) => !m)) {
+      // Same one-retry-then-re-render pattern as every other reading stage
+      // above — realistically only reachable in the first instants after
+      // page load, since precomputeReadingPairAssets warms every one of
+      // these nine letters at boot.
+      if (!readingRetriedFrames.has(frame.id)) {
+        readingRetriedFrames.add(frame.id);
+        const at = frames.indexOf(frame);
+        Promise.all(SENTENCE_LAYOUT.map((item) => getLetterWindow(item.id))).then(() => {
+          if (index === at) renderFrame(frame);
+        });
+      }
+      return stage;
+    }
+
+    // Height bound: shared baseline (every taught letter's ink BOTTOM —
+    // same kamatz-is-zero convention as the letters round), so the row's
+    // height is (tallest rise above it) + (deepest drop below it), taught
+    // letters only — silent companions carry no baseline term, same reason
+    // as the letters round above (they simply inherit their host's canvas
+    // origin, see the companionTop assignment below).
+    let up = 0, down = 0;
+    SENTENCE_LAYOUT.forEach((item, i) => {
+      if (!item.taught) return;
+      const m = metrics[i];
+      up = Math.max(up, m.bottom - m.top);
+      down = Math.max(down, m.size - m.bottom);
+    });
+    const heightBudget = rect.height * SENTENCE_STAGE_HEIGHT_FRACTION;
+    const S_height = heightBudget / (up + down);
+
+    // Width bound: a straight left-to-right chain (unlike the letters
+    // round's 2-3-box min-over-edge-pairs — with nine glyphs strictly
+    // ordered and never reordered, the tight union width is just the
+    // accumulated ink widths plus the accumulated gaps between them, no
+    // search needed). widthBudget = ink*S + gaps(px, independent of S), so
+    // S is bounded by whatever's left after the fixed-pixel gaps.
+    const sumInkWidth = metrics.reduce((sum, m) => sum + (m.right - m.left), 0);
+    const sumGapFraction = SENTENCE_LAYOUT.reduce((sum, item) => sum + (item.gapBefore ? SENTENCE_GAP_FRACTIONS[item.gapBefore] : 0), 0);
+    const widthBudgetFraction = SENTENCE_STAGE_WIDTH_FRACTION - sumGapFraction;
+    const S_width = (rect.width * widthBudgetFraction) / sumInkWidth;
+
+    let S = Math.min(S_height, S_width);
+    if (!(S > 0)) S = 1; // degenerate screens only — never negative/NaN
+
+    // Horizontal placement: walk the chain left to right, anchoring each
+    // glyph's ink-left edge exactly one gap past the previous glyph's
+    // ink-right edge (the same "facing ink edges, fixed px apart"
+    // guarantee as every other gap constant in this file), then shift the
+    // whole row so its union is centered on screen.
+    const lefts = [];
+    let cursorInkRight = null; // previous glyph's ink-right edge, in screen px (pre-shift)
+    SENTENCE_LAYOUT.forEach((item, i) => {
+      const m = metrics[i];
+      let left;
+      if (cursorInkRight === null) {
+        left = -m.left * S; // first glyph: pin its own ink-left to x = 0
+      } else {
+        const gapPx = rect.width * SENTENCE_GAP_FRACTIONS[item.gapBefore];
+        left = cursorInkRight + gapPx - m.left * S;
+      }
+      lefts.push(left);
+      cursorInkRight = left + m.right * S;
+    });
+    const size = 700 * S; // every glyph shares the same 700x700 canvas
+    const unionLeft = Math.min(...lefts);
+    const unionRight = Math.max(...lefts.map((l) => l + size));
+    const shiftX = (rect.width - (unionRight - unionLeft)) / 2 - unionLeft;
+
+    // Vertical placement: taught letters share baseline y0 (ink bottom);
+    // each silent companion simply inherits its host's own top — same
+    // canvas-origin-sharing rule as the letters round (see the
+    // companionTop comment up in buildReadingStage). "Host" is always the
+    // very next glyph in the chain (a companion always immediately
+    // precedes the taught letter it belongs to — see SENTENCE_LAYOUT).
+    const y0 = (rect.height - (up + down) * S) / 2 + up * S;
+    const tops = SENTENCE_LAYOUT.map((item, i) => {
+      if (item.taught) return y0 - metrics[i].bottom * S;
+      return null; // filled in from the host below, once hosts are known
+    });
+    SENTENCE_LAYOUT.forEach((item, i) => {
+      if (!item.taught) tops[i] = tops[i + 1]; // companion's host is always next in the chain
+    });
+
+    SENTENCE_LAYOUT.forEach((item, i) => {
+      const box = el('div', 'reading-box');
+      const img = document.createElement('img');
+      img.className = 'reading-box-img';
+      img.alt = LETTERS[item.id].letterImg;
+      img.src = LETTERS[item.id].letterImg;
+      if (item.taught) {
+        applyLetterPulseOrigin(img, item.id);
+        if (frame.active === item.id) img.classList.add('reading-box--pulse');
+      }
+      box.appendChild(img);
+      positionAbsolute(box, lefts[i] + shiftX, tops[i], size, size);
+      stage.appendChild(box);
+    });
+
+    return stage;
+  }
+
+  // Final celebration after the full sentence is read — structurally the
+  // same "video + sound + confetti, no letters behind it" payoff as every
+  // chapter's word-reveal, just without a reading-stage behind the clip
+  // (there's no single word here, the sentence itself was the content, on
+  // the frames right before this one). If frame.video 404s (Noam's own
+  // note: he's producing this clip separately, may not exist in assets/
+  // yet), the video element's own 'error' listener below still fires
+  // confetti/already-played sound — the celebration never silently no-ops
+  // just because the clip isn't dropped in yet.
+  function buildFinalRevealStage(frame) {
+    const stage = el('div', 'reading-stage');
+    const rect = contentEl.getBoundingClientRect();
+    stage.style.width = `${Math.round(rect.width)}px`;
+    stage.style.height = `${Math.round(rect.height)}px`;
+    if (frame.video) {
+      const videoEl = document.createElement('video');
+      videoEl.className = 'saba-reveal-video';
+      videoEl.src = frame.video;
+      videoEl.autoplay = true;
+      videoEl.muted = true;
+      videoEl.playsInline = true;
+      videoEl.loop = false;
+      videoEl.preload = 'auto';
+      videoEl.style.objectPosition = frame.videoPosition || '50% center';
+      stage.appendChild(videoEl);
+      const CONFETTI_TRIGGER_TIME = (typeof frame.confettiAt === 'number') ? frame.confettiAt : 1.0;
+      let confettiFired = false;
+      const fireConfetti = () => {
+        if (confettiFired) return;
+        confettiFired = true;
+        const contentRect = contentEl.getBoundingClientRect();
+        burstConfetti(contentRect.left + contentRect.width / 2, contentRect.top + contentRect.height / 2);
+      };
+      videoEl.addEventListener('timeupdate', () => {
+        if (videoEl.currentTime >= CONFETTI_TRIGGER_TIME) fireConfetti();
+      });
+      videoEl.addEventListener('ended', fireConfetti);
+      videoEl.addEventListener('error', fireConfetti);
+    }
+    if (frame.sound) {
+      const soundEl = new Audio(frame.sound);
+      soundEl.loop = false;
+      const playPromise = soundEl.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {});
+      }
+    }
+    return stage;
+  }
+
   // Saba reveal: reuses buildReadingStage verbatim for the word (identical
   // geometry to reading-letters-combine — no jump on this tap), then layers
   // Granddad's clip in behind it. Video goes in as the stage's FIRST child
@@ -2115,6 +2382,17 @@
         // the function itself only ever reads frame.sa/ba/video/sound, so
         // it's reused verbatim for Kana (and every chapter after it).
         contentEl.appendChild(buildSabaRevealStage(frame));
+        break;
+      }
+      case 'sentence-reading': {
+        // Final capstone round — the full taught sentence, one letter
+        // pulsing per tap. Same narration-lives-live rule as reading-pair
+        // above; frame.text is reference-only.
+        contentEl.appendChild(buildSentenceStage(frame));
+        break;
+      }
+      case 'sentence-reveal': {
+        contentEl.appendChild(buildFinalRevealStage(frame));
         break;
       }
       default: {
