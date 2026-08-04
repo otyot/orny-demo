@@ -364,6 +364,13 @@
     // gesture, so autoplay-with-sound is allowed). Confetti timing is
     // separate/later — see buildSabaRevealStage.
     saba_level_complete_sound: 'assets/level-complete.MP3',
+    // Kana reveal — the boy walks in from the side (profile), turns to
+    // face forward, and settles holding the teddy bear + shopping bag
+    // ("bought" — קָנָה). 5s total, white background, faint/near-silent
+    // audio track left untouched since buildSabaRevealStage always mutes
+    // the element anyway. See kana-reveal frame/buildDeck below for the
+    // confetti timing measured against this specific clip.
+    kana_video: 'assets/kana.mp4',
 
     // ---------------------------------------------------------------------
     // CHAPTER 2 — Ka + Na -> Kana (קָנָה, "bought"), part of the full-lesson
@@ -378,10 +385,10 @@
     na_letter_img:   'assets/nun-kamatz.png',
     // Silent He — קנה is spelled Qof-Nun-He, with the He carrying no sound
     // of its own and no niqqud, same grammatical role Aleph played at the
-    // end of Saba (see LETTERS.he below). NOTE FOR NOAM: this file's glyph
-    // currently looks like it's actually another Nun shape, not He (ה) —
-    // worth a quick look/re-export. Wired in as-is so the rest of chapter
-    // 2's structure is otherwise complete and ready the moment it's fixed.
+    // end of Saba (see LETTERS.he below). Shape confirmed fine on
+    // inspection — an earlier QA pass flagged this as looking like a Nun
+    // instead of He, but that was a compositing bug in the comparison
+    // script, not a real problem with this asset.
     he_letter_img:   'assets/he.png',
   };
 
@@ -749,7 +756,7 @@
       // by every chapter's reveal, not specific to Saba despite the
       // function's historical name.
       { id: opts.revealId, kind: 'word-reveal', sa: rightLetter, ba: leftLetter,
-        video: opts.video, sound: opts.sound,
+        video: opts.video, sound: opts.sound, confettiAt: opts.confettiAt,
         text: opts.word, moment: 'onFinalWordRevealed' },
     ];
   }
@@ -766,15 +773,19 @@
         word: 'סַבָּא',
       }),
 
-      // Chapter 2 — Ka + Na -> Kana ("bought"). Video is an explicit
-      // placeholder (Granddad's clip, reused per Noam) until a real Kana
-      // reveal clip exists; no sound yet either.
+      // Chapter 2 — Ka + Na -> Kana ("bought"). No sound clip yet — video
+      // only, same as everything else this generic reveal supports.
       ...buildCycleFrames(LETTERS.ka),
       ...buildCycleFrames(LETTERS.na),
       ...buildHidingRecall(['ka', 'na']),
       ...buildReadingPhase('ka', 'na', {
         idPrefix: 'kana-', revealId: 'kana-reveal',
-        video: ASSETS.saba_wave_video,
+        video: ASSETS.kana_video,
+        // Measured directly from kana.mp4 (5s total): he's mid-stride/
+        // still turning through ~1.8s, feet planted and fully settled
+        // facing forward by ~1.9-2.0s — firing here lands the burst right
+        // as he "arrives", same idea as Saba's arm-lift trigger below.
+        confettiAt: 2.0,
         word: 'קָנָה',
       }),
     ];
@@ -1848,16 +1859,17 @@
       videoEl.loop = false;
       videoEl.preload = 'auto';
       stage.insertBefore(videoEl, stage.firstChild);
-      // Confetti timing — measured directly from the actual clip's frames
-      // (saba-wave-compressed.mp4, 5.6s total): he's stopped and standing
-      // by ~2.8s, starts lifting his arm at ~3.6s, and is fully into the
-      // wave by ~3.8s. Firing at CONFETTI_TRIGGER_TIME below means the
-      // burst lands right as the wave begins, not two seconds after it's
-      // already over. Origin is #content's own live-measured center (same
-      // rect buildReadingStage uses), which sits right on the word/
-      // Grandad group — not the left edge he walked in from, and not tied
-      // to a moving element's start point.
-      const CONFETTI_TRIGGER_TIME = 3.6;
+      // Confetti timing — measured directly from each clip's own frames
+      // (see the comment at each frame's confettiAt value in buildDeck),
+      // since different reveal clips settle at different times. Falls back
+      // to Saba's original 3.6s (his arm-lift point in
+      // saba-wave-compressed.mp4, 5.6s total) if a frame doesn't specify
+      // one, so this stays byte-for-byte unchanged for chapter 1. Origin is
+      // #content's own live-measured center (same rect buildReadingStage
+      // uses), which sits right on the word/character group — not the left
+      // edge anyone walked in from, and not tied to a moving element's
+      // start point.
+      const CONFETTI_TRIGGER_TIME = (typeof frame.confettiAt === 'number') ? frame.confettiAt : 3.6;
       let confettiFired = false;
       const fireConfetti = () => {
         if (confettiFired) return;
