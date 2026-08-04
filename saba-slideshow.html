@@ -896,7 +896,19 @@
   // This deck runs over https via GitHub Pages, where reading pixel data
   // back out of a same-origin canvas is allowed, so the ink bounds can be
   // detected automatically instead of hand-tuned per asset.
-  const READING_CHAR_SCALE = { sa: 1, ba: 1, ka: 1, na: 1 }; // per-letter hand nudge, edit freely (missing keys default to 1 — see buildReadingStage)
+  const READING_CHAR_SCALE = { sa: 1, ba: 1, ka: 0.55, na: 1 }; // per-letter hand nudge, edit freely (missing keys default to 1 — see buildReadingStage). Ka's rough sketch has much thinner ink relative to its own canvas than Na's, so at 1/1 its automatically-computed box came out ~1.8x wider than Na's, which read as the two mascots overlapping/nesting instead of sitting side by side. 0.55 brings Ka's box footprint back in line with Na's.
+  // Per-PAIR nudges for the mascot ("character") round only, keyed by
+  // "rightId|leftId" — for when the automatic ink-edge gap (always exactly
+  // READING_CHAR_GAP_FRACTION, provably, regardless of source art) still
+  // reads as too tight or off-center for a specific pair. This happens with
+  // thin single-stroke sketches (Ka/Na) in a way it didn't for Sa/Ba's
+  // fuller mascot art: each letter's ink sits at a different position
+  // *within its own canvas*, so centering the two full canvases doesn't
+  // reliably center the two letters' actual visible ink. Missing keys
+  // default to 0 (no change) — Sa/Ba's pair key was never added, so their
+  // approved geometry is untouched.
+  const READING_CHAR_GAP_EXTRA = { 'ka|na': 0.03 }; // extra gap fraction, added on top of READING_CHAR_GAP_FRACTION, between Ka/Na's facing ink edges — Noam: spread them apart more so the eye can land on each one separately.
+  const READING_CHAR_CENTER_SHIFT = { 'ka|na': -0.05 }; // fraction of screen width to shift the whole Ka+Na pair left — Noam: the pair reads as sitting right of center; recentering on the two letters' visible ink (not their padded canvases) pulls it back.
   // letterId -> measurements of where that letter's character sits within
   // its window, taken off the real pixels when the window is computed (see
   // getReadingWindow). All in window coordinates:
@@ -1582,7 +1594,8 @@
       // both letters, with the optional per-letter hand nudge folded in.
       const sSaPerK = (READING_CHAR_SCALE[saSpec.letter] || 1) / mSa.ink;
       const sBaPerK = (READING_CHAR_SCALE[baSpec.letter] || 1) / mBa.ink;
-      const gapPx = rect.width * READING_CHAR_GAP_FRACTION;
+      const pairKey = `${saSpec.letter}|${baSpec.letter}`;
+      const gapPx = rect.width * (READING_CHAR_GAP_FRACTION + (READING_CHAR_GAP_EXTRA[pairKey] || 0));
       const widthBudget = rect.width * READING_STAGE_WIDTH_FRACTION;
       const heightBudget = rect.height * READING_STAGE_HEIGHT_FRACTION;
 
@@ -1623,7 +1636,7 @@
       saLeft = mBa.right * sBa + gapPx - mSa.left * sSa;
       const unionLeft = Math.min(baLeft, saLeft);
       const unionRight = Math.max(baLeft + baSize, saLeft + saSize);
-      const shiftX = (rect.width - (unionRight - unionLeft)) / 2 - unionLeft;
+      const shiftX = (rect.width - (unionRight - unionLeft)) / 2 - unionLeft + rect.width * (READING_CHAR_CENTER_SHIFT[pairKey] || 0);
       baLeft += shiftX;
       saLeft += shiftX;
 
