@@ -341,7 +341,6 @@
     ba_character:   'assets/ba-bakbuk-c.png',
     bakbuk_picture: 'assets/ba-bakbuk-i.png',
     arrow_img:       'assets/arrow.png',
-    saba_illustration: 'assets/saba.png', // still image placeholder — swap for a short clip later, same slot
     // Real Hebrew letters round — pre-rendered PNGs (Noam's Photoshop file,
     // Noto Sans Hebrew), NOT live CSS text. Each is a letter + its niqqud
     // baked into one flat image on a shared 700x700 canvas, same convention
@@ -364,6 +363,25 @@
     // gesture, so autoplay-with-sound is allowed). Confetti timing is
     // separate/later — see buildSabaRevealStage.
     saba_level_complete_sound: 'assets/level-complete.MP3',
+
+    // ---------------------------------------------------------------------
+    // CHAPTER 2 — Ka + Na -> Kana (קָנָה, "bought"), part of the full-lesson
+    // sentence Saba Kana Para ("Grandfather bought a cow"). Same asset
+    // conventions as chapter 1 above.
+    // ---------------------------------------------------------------------
+    ka_character:    'assets/ka-karnaf-c.png',
+    karnaf_picture:  'assets/ka-karnaf-i.png',
+    na_character:    'assets/na-nahash-c.png',
+    nahash_picture:  'assets/na-nahash-i.png',
+    ka_letter_img:   'assets/kof-kamatz.png',
+    na_letter_img:   'assets/nun-kamatz.png',
+    // Silent He — קנה is spelled Qof-Nun-He, with the He carrying no sound
+    // of its own and no niqqud, same grammatical role Aleph played at the
+    // end of Saba (see LETTERS.he below). NOTE FOR NOAM: this file's glyph
+    // currently looks like it's actually another Nun shape, not He (ה) —
+    // worth a quick look/re-export. Wired in as-is so the rest of chapter
+    // 2's structure is otherwise complete and ready the moment it's fixed.
+    he_letter_img:   'assets/he.png',
   };
 
   // ---------------------------------------------------------------------
@@ -401,6 +419,12 @@
       pictureImg: ASSETS.bakbuk_picture,
       pictureName: 'Bakbuk',
       letterImg: ASSETS.ba_letter_img,
+      // Saba (סבא) is spelled Samech-Bet-Aleph — the silent Aleph always
+      // rides along with Ba's letter-image in the letters round (see
+      // buildReadingStage's companion-letter handling below). Read
+      // generically off whichever letter is in the "left/second" slot, so
+      // the same code path also carries chapter 2's Na -> He.
+      silentCompanion: 'aleph',
       elements: [ // EDIT ME — placeholder bottle elements + placeholder origins
         { id: 'neck', overlayImg: 'assets/ba-bakbuk-e1.png', label: 'This is the neck', origin: '50% 50%' },
         { id: 'body', overlayImg: 'assets/ba-bakbuk-e2.png', label: 'This is the body', origin: '50% 50%' },
@@ -421,6 +445,50 @@
       id: 'aleph',
       hasNiqqud: false,
       letterImg: ASSETS.aleph_letter_img,
+    },
+
+    // -----------------------------------------------------------------
+    // CHAPTER 2 — Ka + Na -> Kana. Element labels/origins below were
+    // measured directly off the actual artwork (same ink-bbox approach
+    // the app itself uses), not guessed — but the LABELS (what to call
+    // each marked part) are my best reading of the drawing, same spirit
+    // as Ba's placeholder breakdown above: happy to correct against
+    // Noam's actual intended breakdown.
+    // -----------------------------------------------------------------
+    ka: {
+      id: 'ka',
+      name: 'Ka',
+      characterImg: ASSETS.ka_character,
+      pictureImg: ASSETS.karnaf_picture,
+      pictureName: 'Karnaf',
+      letterImg: ASSETS.ka_letter_img,
+      elements: [
+        { id: 'horn-big',   overlayImg: 'assets/ka-karnaf-e1.png', label: 'This is the big horn',   origin: '81% 33%' },
+        { id: 'horn-small', overlayImg: 'assets/ka-karnaf-e2.png', label: 'This is the small horn', origin: '76% 45%' },
+        { id: 'nose',       overlayImg: 'assets/ka-karnaf-e3.png', label: 'This is the nose',       origin: '88% 53%' },
+      ],
+    },
+    na: {
+      id: 'na',
+      name: 'Na',
+      characterImg: ASSETS.na_character,
+      pictureImg: ASSETS.nahash_picture,
+      pictureName: 'Nachash',
+      letterImg: ASSETS.na_letter_img,
+      // Kana (קנה) ends in a silent He — same role Aleph played for Saba.
+      silentCompanion: 'he',
+      elements: [
+        { id: 'body',   overlayImg: 'assets/na-nahash-e1.png', label: 'This is the body',   origin: '51% 40%' },
+        { id: 'tongue', overlayImg: 'assets/na-nahash-e2.png', label: 'This is the tongue', origin: '56% 79%' },
+      ],
+    },
+    // Silent He — see ASSETS.he_letter_img's comment: the file itself
+    // looks mislabeled (reads as a Nun shape) and needs a check from
+    // Noam, but the plumbing is complete and correct either way.
+    he: {
+      id: 'he',
+      hasNiqqud: false,
+      letterImg: ASSETS.he_letter_img,
     },
   };
 
@@ -551,15 +619,17 @@
   }
 
   // Phase 2 — "where's it hiding?" reinforcement, done AFTER both letters'
-  // full teaching cycles are complete (Sa fully taught, then Ba fully
-  // taught, then this). For each letter: the character sits at full
+  // full teaching cycles are complete (first letter fully taught, then
+  // second, then this). For each letter: the character sits at full
   // opacity over its picture faded to 20% (same look/asset/fade as the
   // in-cycle re-drill — no new images needed), Noam asks live where it
   // hides, then one tap reveals the plain full-opacity picture as the
   // answer. No element overlays here — just the hiding-spot recall.
-  function buildHidingRecall() {
+  // `letterIds` — which two (or more) LETTERS keys to build this for, in
+  // order; lets chapter 2 (Ka/Na) reuse this verbatim.
+  function buildHidingRecall(letterIds) {
     const frames = [];
-    [LETTERS.sa, LETTERS.ba].forEach((L) => {
+    letterIds.map((id) => LETTERS[id]).forEach((L) => {
       frames.push({
         id: `${L.id}-hiding-prompt`,
         kind: 'anchor',
@@ -615,67 +685,97 @@
   //                                              of ink-centered, per Noam's
   //                                              own reference point).
   //
-  // `letter` on image slots is the LETTERS key ('sa' | 'ba') — it selects
-  // which reading window (and which READING_CHAR_SCALE nudge) applies.
+  // `letter` on image slots is the LETTERS key ('sa' | 'ba' | 'ka' | 'na' |
+  // ...) — it selects which reading window (and which READING_CHAR_SCALE
+  // nudge) applies.
   //
-  // `active`: 'sa' | 'ba' | null — which side (if any) pulses this tap.
-  // Every reading-pair frame renders right-to-left (Sa on the right, Ba on
-  // the left, via .reading-pair's row-reverse) since סַבָּא is spelled/read
-  // that way in Hebrew — true for the mascot rounds too, not just the letters.
-  function buildReadingPhase() {
-    const sa = LETTERS.sa;
-    const ba = LETTERS.ba;
+  // `active`: a LETTERS key | null — which side (if any) pulses this tap.
+  // Every reading-pair frame renders right-to-left (right-slot letter on
+  // the right, left-slot letter on the left, via .reading-pair's
+  // row-reverse) since Hebrew is spelled/read that way — true for the
+  // mascot rounds too, not just the letters.
+  //
+  // Generic over any two letters + an optional silent companion on the
+  // left-slot letter (see LETTERS[leftId].silentCompanion) — chapter 1
+  // (Sa/Ba/Aleph -> Saba) and chapter 2 (Ka/Na/He -> Kana) both build off
+  // this same function. `opts.idPrefix` keeps every frame id chapter 1
+  // already shipped with completely unchanged (called with '' below);
+  // chapter 2 uses 'kana-' so nothing collides.
+  function buildReadingPhase(rightId, leftId, opts) {
+    const right = LETTERS[rightId];
+    const left = LETTERS[leftId];
+    const idPrefix = opts.idPrefix || '';
 
-    const saCharacter = { type: 'character', src: sa.characterImg, letter: 'sa' };
-    const baCharacter = { type: 'character', src: ba.characterImg, letter: 'ba' };
-    const saComposite = { type: 'composite', base: sa.pictureImg, overlay: sa.characterImg, letter: 'sa' };
-    const baComposite = { type: 'composite', base: ba.pictureImg, overlay: ba.characterImg, letter: 'ba' };
-    const saLetter = { type: 'letter-image', letter: 'sa' };
-    const baLetter = { type: 'letter-image', letter: 'ba' };
+    const rightCharacter = { type: 'character', src: right.characterImg, letter: rightId };
+    const leftCharacter = { type: 'character', src: left.characterImg, letter: leftId };
+    const rightComposite = { type: 'composite', base: right.pictureImg, overlay: right.characterImg, letter: rightId };
+    const leftComposite = { type: 'composite', base: left.pictureImg, overlay: left.characterImg, letter: leftId };
+    const rightLetter = { type: 'letter-image', letter: rightId };
+    const leftLetter = { type: 'letter-image', letter: leftId };
 
     return [
       // Round 1 — teacher demonstrates each name in turn.
-      { id: 'reading-intro', kind: 'reading-pair', sa: saCharacter, ba: baCharacter, active: null,
+      { id: `${idPrefix}reading-intro`, kind: 'reading-pair', sa: rightCharacter, ba: leftCharacter, active: null,
         text: 'Let’s call them by their names, one at a time. I’ll go first.' },
-      { id: 'reading-demo-sa', kind: 'reading-pair', sa: saComposite, ba: baCharacter, active: 'sa',
-        text: 'Sa!' },
-      { id: 'reading-demo-ba', kind: 'reading-pair', sa: saCharacter, ba: baComposite, active: 'ba',
-        text: 'Ba!' },
+      { id: `${idPrefix}reading-demo-${rightId}`, kind: 'reading-pair', sa: rightComposite, ba: leftCharacter, active: rightId,
+        text: `${right.name}!` },
+      { id: `${idPrefix}reading-demo-${leftId}`, kind: 'reading-pair', sa: rightCharacter, ba: leftComposite, active: leftId,
+        text: `${left.name}!` },
 
       // Round 2 — same visuals, kid's turn (silent prompts).
-      { id: 'reading-your-turn', kind: 'reading-pair', sa: saCharacter, ba: baCharacter, active: null,
+      { id: `${idPrefix}reading-your-turn`, kind: 'reading-pair', sa: rightCharacter, ba: leftCharacter, active: null,
         text: 'Now it’s your turn.' },
-      { id: 'reading-kid-sa', kind: 'reading-pair', sa: saComposite, ba: baCharacter, active: 'sa',
+      { id: `${idPrefix}reading-kid-${rightId}`, kind: 'reading-pair', sa: rightComposite, ba: leftCharacter, active: rightId,
         text: '' },
-      { id: 'reading-kid-ba', kind: 'reading-pair', sa: saCharacter, ba: baComposite, active: 'ba',
+      { id: `${idPrefix}reading-kid-${leftId}`, kind: 'reading-pair', sa: rightCharacter, ba: leftComposite, active: leftId,
         text: '' },
 
       // Round 3 — same drill, now with the real letters (gap between them).
-      { id: 'reading-letters-intro', kind: 'reading-pair', sa: saLetter, ba: baLetter, active: null,
+      { id: `${idPrefix}reading-letters-intro`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: null,
         text: 'Again!' },
-      { id: 'reading-letters-sa', kind: 'reading-pair', sa: saLetter, ba: baLetter, active: 'sa',
-        text: 'Sa!' },
-      { id: 'reading-letters-ba', kind: 'reading-pair', sa: saLetter, ba: baLetter, active: 'ba',
-        text: 'Ba!' },
-      { id: 'reading-letters-combine', kind: 'reading-pair', sa: saLetter, ba: baLetter, active: null,
+      { id: `${idPrefix}reading-letters-${rightId}`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: rightId,
+        text: `${right.name}!` },
+      { id: `${idPrefix}reading-letters-${leftId}`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: leftId,
+        text: `${left.name}!` },
+      { id: `${idPrefix}reading-letters-combine`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: null,
         text: 'What did we get?' },
 
       // Final reveal — same word, same geometry as reading-letters-combine
       // (built via buildReadingStage so it doesn't jump on this tap), with
-      // Granddad's clip layered in behind it. frame.text is reference-only,
-      // same convention as the teaching-cycle frames above.
-      { id: 'saba-reveal', kind: 'saba-reveal', sa: saLetter, ba: baLetter,
-        video: ASSETS.saba_wave_video, sound: ASSETS.saba_level_complete_sound,
-        text: 'סַבָּא', moment: 'onFinalWordRevealed' },
+      // a clip layered in behind it. frame.text is reference-only, same
+      // convention as the teaching-cycle frames above. `kind: 'word-reveal'`
+      // is the generic name (see buildWordRevealStage) — reused verbatim
+      // by every chapter's reveal, not specific to Saba despite the
+      // function's historical name.
+      { id: opts.revealId, kind: 'word-reveal', sa: rightLetter, ba: leftLetter,
+        video: opts.video, sound: opts.sound,
+        text: opts.word, moment: 'onFinalWordRevealed' },
     ];
   }
 
   function buildDeck() {
     return [
+      // Chapter 1 — Sa + Ba -> Saba ("grandfather").
       ...buildCycleFrames(LETTERS.sa),
       ...buildCycleFrames(LETTERS.ba),
-      ...buildHidingRecall(),
-      ...buildReadingPhase(),
+      ...buildHidingRecall(['sa', 'ba']),
+      ...buildReadingPhase('sa', 'ba', {
+        idPrefix: '', revealId: 'saba-reveal',
+        video: ASSETS.saba_wave_video, sound: ASSETS.saba_level_complete_sound,
+        word: 'סַבָּא',
+      }),
+
+      // Chapter 2 — Ka + Na -> Kana ("bought"). Video is an explicit
+      // placeholder (Granddad's clip, reused per Noam) until a real Kana
+      // reveal clip exists; no sound yet either.
+      ...buildCycleFrames(LETTERS.ka),
+      ...buildCycleFrames(LETTERS.na),
+      ...buildHidingRecall(['ka', 'na']),
+      ...buildReadingPhase('ka', 'na', {
+        idPrefix: 'kana-', revealId: 'kana-reveal',
+        video: ASSETS.saba_wave_video,
+        word: 'קָנָה',
+      }),
     ];
   }
 
@@ -795,7 +895,7 @@
   // This deck runs over https via GitHub Pages, where reading pixel data
   // back out of a same-origin canvas is allowed, so the ink bounds can be
   // detected automatically instead of hand-tuned per asset.
-  const READING_CHAR_SCALE = { sa: 1, ba: 1 }; // per-letter hand nudge, edit freely
+  const READING_CHAR_SCALE = { sa: 1, ba: 1, ka: 1, na: 1 }; // per-letter hand nudge, edit freely (missing keys default to 1 — see buildReadingStage)
   // letterId -> measurements of where that letter's character sits within
   // its window, taken off the real pixels when the window is computed (see
   // getReadingWindow). All in window coordinates:
@@ -1016,16 +1116,19 @@
   // letter-image slots carry image srcs).
   function collectFrameSrcs(f) {
     const srcs = [].concat(f.img || [], f.imgs || []);
-    if (f.kind === 'reading-pair' || f.kind === 'saba-reveal') {
+    if (f.kind === 'reading-pair' || f.kind === 'word-reveal') {
       [f.sa, f.ba].forEach((slot) => {
         if (!slot) return;
         if (slot.type === 'composite') srcs.push(slot.base, slot.overlay);
         else if (slot.type === 'character') srcs.push(slot.src);
         else if (slot.type === 'letter-image') {
           srcs.push(LETTERS[slot.letter].letterImg);
-          // The silent Aleph always rides along with Ba's letter-image —
-          // see the ASSETS.aleph_letter_img comment.
-          if (slot.letter === 'ba') srcs.push(LETTERS.aleph.letterImg);
+          // A silent companion letter (Aleph for Ba, He for Na) always
+          // rides along with its host letter's letter-image — read
+          // generically off the LETTERS data (see silentCompanion above)
+          // so every chapter's letters round warms/preloads correctly.
+          const companion = LETTERS[slot.letter] && LETTERS[slot.letter].silentCompanion;
+          if (companion) srcs.push(LETTERS[companion].letterImg);
         }
       });
     }
@@ -1057,7 +1160,7 @@
   // is already sitting in cache before it's ever needed on screen.
   function precomputeReadingPairAssets(allFrames) {
     allFrames.forEach((f) => {
-      if (f.kind !== 'reading-pair' && f.kind !== 'saba-reveal') return;
+      if (f.kind !== 'reading-pair' && f.kind !== 'word-reveal') return;
       [f.sa, f.ba].forEach((spec) => {
         if (!spec) return;
         if (spec.type === 'composite') {
@@ -1067,7 +1170,8 @@
           getReadingCroppedImage(spec.letter, spec.src);
         } else if (spec.type === 'letter-image') {
           getLetterWindow(spec.letter);
-          if (spec.letter === 'ba') getLetterWindow('aleph');
+          const companion = LETTERS[spec.letter] && LETTERS[spec.letter].silentCompanion;
+          if (companion) getLetterWindow(companion);
         }
       });
     });
@@ -1218,7 +1322,7 @@
   const READING_LETTER_STAGE_WIDTH_FRACTION = 0.45;  // both letters + gap, of content width
   const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.40; // tallest letter, of content height
   const READING_LETTER_GAP_FRACTION = 0.06; // gap between the two letters' facing ink edges (not box edges — same "what the eye sees" idea as READING_CHAR_GAP_FRACTION)
-  const READING_ALEPH_GAP_FRACTION = 0.02; // Aleph sits close to Ba's left side, like normal in-word letter spacing in printed Hebrew — tighter than 0.035 (Noam: move it right, closer in, to about book-like spacing) but not as tight as 0.015 (that read as touching/merged)
+  const READING_SILENT_LETTER_GAP_FRACTION = 0.02; // a silent companion letter (Aleph, He, ...) sits close to its host letter's left side, like normal in-word letter spacing in printed Hebrew — tighter than 0.035 (Noam: move it right, closer in, to about book-like spacing) but not as tight as 0.015 (that read as touching/merged). Originally tuned for Aleph specifically; reused as-is for every chapter's silent companion.
   // Noam overlaid a screenshot of the mascot characters/pictures on top of
   // the letters screen: the letters group sits noticeably right of where
   // the characters actually are, and a bit small. Measured via ink
@@ -1456,20 +1560,27 @@
     let saLeft = centerX + defaultGap / 2;
     let baLeft = centerX - defaultGap / 2 - fallbackSize;
     let saTop = centerY - fallbackSize / 2, baTop = centerY - fallbackSize / 2;
-    // Aleph only ever renders on letter frames (see isLetterFrame branch
-    // below) — starts hidden/zero-sized, never shown unless real geometry
-    // is computed for it.
-    let alephLeft = 0, alephTop = 0, alephSize = 0, showAleph = false;
-    const mSa = readingMetrics('sa');
-    const mBa = readingMetrics('ba');
-    const lSa = letterMetrics('sa');
-    const lBa = letterMetrics('ba');
-    const lAleph = letterMetrics('aleph');
+    // A silent companion letter (Aleph for chapter 1's Ba, He for chapter
+    // 2's Na — see LETTERS[x].silentCompanion) only ever renders on letter
+    // frames whose left-slot letter actually has one (see isLetterFrame
+    // branch below) — starts hidden/zero-sized, never shown unless real
+    // geometry is computed for it.
+    let companionLeft = 0, companionTop = 0, companionSize = 0, showCompanion = false;
+    const companionId = LETTERS[baSpec.letter] && LETTERS[baSpec.letter].silentCompanion;
+    // Generic over any two letters (not just literally 'sa'/'ba') — reads
+    // whichever letter ids are actually in the two slots this call was
+    // given, so the exact same function/math serves chapter 1 and every
+    // chapter after it.
+    const mSa = readingMetrics(saSpec.letter);
+    const mBa = readingMetrics(baSpec.letter);
+    const lSa = letterMetrics(saSpec.letter);
+    const lBa = letterMetrics(baSpec.letter);
+    const lCompanion = companionId ? letterMetrics(companionId) : null;
     if (!isTextFrame && !isLetterFrame && mSa && mBa) {
       // Per-K scale factors (s_L = K * sPerK_L): equal on-screen ink for
       // both letters, with the optional per-letter hand nudge folded in.
-      const sSaPerK = (READING_CHAR_SCALE.sa || 1) / mSa.ink;
-      const sBaPerK = (READING_CHAR_SCALE.ba || 1) / mBa.ink;
+      const sSaPerK = (READING_CHAR_SCALE[saSpec.letter] || 1) / mSa.ink;
+      const sBaPerK = (READING_CHAR_SCALE[baSpec.letter] || 1) / mBa.ink;
       const gapPx = rect.width * READING_CHAR_GAP_FRACTION;
       const widthBudget = rect.width * READING_STAGE_WIDTH_FRACTION;
       const heightBudget = rect.height * READING_STAGE_HEIGHT_FRACTION;
@@ -1533,62 +1644,67 @@
       if (!readingRetriedFrames.has(frames[index].id)) {
         readingRetriedFrames.add(frames[index].id);
         const at = index;
-        Promise.all([getReadingWindow('sa'), getReadingWindow('ba')]).then(() => {
+        Promise.all([getReadingWindow(saSpec.letter), getReadingWindow(baSpec.letter)]).then(() => {
           if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
             renderFrame(frames[index]);
           }
         });
       }
-    } else if (isLetterFrame && lSa && lBa && lAleph) {
+    } else if (isLetterFrame && lSa && lBa && (!companionId || lCompanion)) {
       // Letters round: an entirely separate layout from the mascot math
       // above (own font/size/position decisions, per Noam). The shared
       // reference point is NOT the ink center (as with the mascots) but
       // the ink BOTTOM edge — Noam's own design: "my point of reference
-      // is the Kamatz sign, so that will be the zero." All three letter
-      // PNGs (Sa, Ba, and the silent Aleph that properly belongs next to
-      // Ba in the word's real spelling) were authored at the same physical
-      // canvas size in one Photoshop document, so — unlike the mascots —
-      // there's no per-letter ink normalization step: all three are simply
-      // scaled by one shared factor S.
+      // is the Kamatz sign, so that will be the zero." Both taught letter
+      // PNGs, plus the silent companion when this pair has one (Aleph for
+      // Sa/Ba, He for Ka/Na — see companionId above), were authored at
+      // the same physical canvas size in one Photoshop document, so —
+      // unlike the mascots — there's no per-letter ink normalization
+      // step: all of them are simply scaled by one shared factor S.
       //
-      // Screen order, left to right, is Aleph, Ba, [gap], Sa — matching
-      // the right-to-left reading order Sa -> Ba(+silent Aleph). Aleph
-      // sits right up against Ba (READING_ALEPH_GAP_FRACTION, much
-      // tighter than the Sa/Ba gap) since the two are one visual unit;
-      // the Sa/Ba gap stays exactly as tuned before Aleph existed.
+      // Screen order, left to right, is [companion], Ba, [gap], Sa —
+      // matching the right-to-left reading order Sa -> Ba(+silent
+      // companion). The companion sits right up against Ba
+      // (READING_SILENT_LETTER_GAP_FRACTION, much tighter than the Sa/Ba
+      // gap) since the two are one visual unit; the Sa/Ba gap stays
+      // exactly as tuned before any companion existed.
       const gapPx = rect.width * READING_LETTER_GAP_FRACTION;
-      const alephGapPx = rect.width * READING_ALEPH_GAP_FRACTION;
+      const companionGapPx = rect.width * READING_SILENT_LETTER_GAP_FRACTION;
       const widthBudget = rect.width * READING_LETTER_STAGE_WIDTH_FRACTION;
       const heightBudget = rect.height * READING_LETTER_STAGE_HEIGHT_FRACTION;
 
       // Height bound: Sa/Ba's ink bottoms share the kamatz baseline, so
       // the union's height is (largest rise above it) + (largest drop
-      // below it). Aleph is deliberately left out of this — see the
-      // vertical-placement note below for why it doesn't use this
-      // baseline at all.
+      // below it). The silent companion (if any) is deliberately left out
+      // of this — see the vertical-placement note below for why it
+      // doesn't use this baseline at all.
       const upPerS = Math.max(lSa.bottom - lSa.top, lBa.bottom - lBa.top);
       const downPerS = Math.max(lSa.size - lSa.bottom, lBa.size - lBa.bottom);
       let S = heightBudget / (upPerS + downPerS);
 
       // Width bound (exact): same edge-pair approach as the mascot
-      // version, extended to three boxes. Ba's box is tentatively at
-      // x = 0; Sa is placed to its right (gapPx) and Aleph to its left
-      // (alephGapPx, negative-direction), then every box's left/right
-      // edge is bounded against every other — the union's width is the
-      // max over any (rightEdge - leftEdge) pair, so bounding every pair
-      // bounds the union.
-      const saLeftA = lBa.right - lSa.left;       // sa box left = saLeftA*S + gapPx
-      const alephLeftA = lBa.left - lAleph.right; // aleph box left = alephLeftA*S - alephGapPx
+      // version. Ba's box is tentatively at x = 0; Sa is placed to its
+      // right (gapPx), and — only when this pair actually has a silent
+      // companion — it's placed to Ba's left (companionGapPx,
+      // negative-direction) and folded into the same edge-pair bounding,
+      // extended from two boxes to three. The union's width is the max
+      // over any (rightEdge - leftEdge) pair, so bounding every pair
+      // bounds the union either way.
+      const saLeftA = lBa.right - lSa.left; // sa box left = saLeftA*S + gapPx
       const edgesRight = [
-        { a: lBa.size, g: 0 },                              // ba box right
-        { a: saLeftA + lSa.size, g: gapPx },                 // sa box right
-        { a: alephLeftA + lAleph.size, g: -alephGapPx },     // aleph box right
+        { a: lBa.size, g: 0 },                          // ba box right
+        { a: saLeftA + lSa.size, g: gapPx },             // sa box right
       ];
       const edgesLeft = [
         { a: 0, g: 0 },                    // ba box left
         { a: saLeftA, g: gapPx },          // sa box left
-        { a: alephLeftA, g: -alephGapPx }, // aleph box left
       ];
+      let companionLeftA = 0;
+      if (companionId && lCompanion) {
+        companionLeftA = lBa.left - lCompanion.right; // companion box left = companionLeftA*S - companionGapPx
+        edgesRight.push({ a: companionLeftA + lCompanion.size, g: -companionGapPx }); // companion box right
+        edgesLeft.push({ a: companionLeftA, g: -companionGapPx });                    // companion box left
+      }
       edgesRight.forEach((r) => edgesLeft.forEach((l) => {
         const a = r.a - l.a;
         const g = r.g - l.g;
@@ -1598,20 +1714,23 @@
 
       saSize = lSa.size * S;
       baSize = lBa.size * S;
-      alephSize = lAleph.size * S;
-      showAleph = true;
 
-      // Horizontal: Ba at 0, Sa/Aleph placed so their ink-edge gaps are
-      // exact, then shift all three so the union is centered on screen.
+      // Horizontal: Ba at 0, Sa (and the companion, if any) placed so
+      // their ink-edge gaps are exact, then shift everything so the union
+      // is centered on screen.
       baLeft = 0;
       saLeft = lBa.right * S + gapPx - lSa.left * S;
-      alephLeft = lBa.left * S - alephGapPx - lAleph.right * S;
-      const unionLeft = Math.min(baLeft, saLeft, alephLeft);
-      const unionRight = Math.max(baLeft + baSize, saLeft + saSize, alephLeft + alephSize);
+      if (companionId && lCompanion) {
+        companionSize = lCompanion.size * S;
+        companionLeft = companionLeftA * S - companionGapPx;
+        showCompanion = true;
+      }
+      const unionLeft = Math.min(baLeft, saLeft, showCompanion ? companionLeft : Infinity);
+      const unionRight = Math.max(baLeft + baSize, saLeft + saSize, showCompanion ? companionLeft + companionSize : -Infinity);
       const shiftX = (rect.width - (unionRight - unionLeft)) / 2 - unionLeft + rect.width * READING_LETTER_GROUP_SHIFT_X_FRACTION;
       baLeft += shiftX;
       saLeft += shiftX;
-      alephLeft += shiftX;
+      if (showCompanion) companionLeft += shiftX;
 
       // Vertical: Sa/Ba share baseline y0 (their ink bottoms — the kamatz
       // mark), the union of the two boxes is centered on screen.
@@ -1621,19 +1740,19 @@
       saTop = y0 - lSa.bottom * S;
       baTop = y0 - lBa.bottom * S;
 
-      // Aleph is silent and carries no niqqud, so it has no kamatz to
-      // zero against — per Noam: "align all those [no-niqqud] letter
-      // images to their baseline... the way I built it in Photoshop, it
-      // will work." Every letter file — niqqud or not — is exported from
-      // the same Photoshop document at the same canvas size, so each
-      // canvas's own (0,0) origin already sits on the same real baseline
-      // grid Noam draws every glyph against. That means no ink-derived
-      // vertical adjustment is needed at all here: Aleph's canvas simply
+      // A silent companion carries no niqqud, so it has no kamatz to zero
+      // against — per Noam: "align all those [no-niqqud] letter images to
+      // their baseline... the way I built it in Photoshop, it will work."
+      // Every letter file — niqqud or not — is exported from the same
+      // Photoshop document at the same canvas size, so each canvas's own
+      // (0,0) origin already sits on the same real baseline grid Noam
+      // draws every glyph against. That means no ink-derived vertical
+      // adjustment is needed at all here: the companion's canvas simply
       // shares Ba's canvas origin (the letter it stands beside), scaled
-      // by the same S. This is why Aleph was left out of the upPerS/
-      // downPerS budget above — its height is whatever its own canvas
-      // gives it once pinned to Ba's origin, not a shared-baseline term.
-      alephTop = baTop;
+      // by the same S. This is why it was left out of the upPerS/downPerS
+      // budget above — its height is whatever its own canvas gives it
+      // once pinned to Ba's origin, not a shared-baseline term.
+      if (showCompanion) companionTop = baTop;
     } else if (isLetterFrame) {
       // Metrics not measured yet — same reasoning/pattern as the mascot
       // fallback above, using the letter-glyph windows instead. One retry
@@ -1641,7 +1760,9 @@
       if (!readingRetriedFrames.has(frames[index].id)) {
         readingRetriedFrames.add(frames[index].id);
         const at = index;
-        Promise.all([getLetterWindow('sa'), getLetterWindow('ba'), getLetterWindow('aleph')]).then(() => {
+        const windowsToWarm = [getLetterWindow(saSpec.letter), getLetterWindow(baSpec.letter)];
+        if (companionId) windowsToWarm.push(getLetterWindow(companionId));
+        Promise.all(windowsToWarm).then(() => {
           if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
             renderFrame(frames[index]);
           }
@@ -1649,27 +1770,29 @@
       }
     }
 
-    const saBox = buildReadingBox(saSpec, active === 'sa');
+    const saBox = buildReadingBox(saSpec, active === saSpec.letter);
     positionAbsolute(saBox, saLeft, saTop, saSize, saSize);
 
-    const baBox = buildReadingBox(baSpec, active === 'ba');
+    const baBox = buildReadingBox(baSpec, active === baSpec.letter);
     positionAbsolute(baBox, baLeft, baTop, baSize, baSize);
 
     stage.appendChild(saBox);
     stage.appendChild(baBox);
 
-    if (showAleph) {
-      // The silent Aleph — not a taught letter, never active/tappable, no
-      // pulse — just a fixed companion glyph that belongs next to Ba in
-      // the word's real spelling. See ASSETS.aleph_letter_img.
-      const alephBox = el('div', 'reading-box');
-      const alephImgEl = document.createElement('img');
-      alephImgEl.className = 'reading-box-img';
-      alephImgEl.alt = LETTERS.aleph.letterImg;
-      alephImgEl.src = LETTERS.aleph.letterImg;
-      alephBox.appendChild(alephImgEl);
-      positionAbsolute(alephBox, alephLeft, alephTop, alephSize, alephSize);
-      stage.appendChild(alephBox);
+    if (showCompanion) {
+      // The silent companion letter (Aleph, He, ...) — not a taught
+      // letter, never active/tappable, no pulse — just a fixed companion
+      // glyph that belongs next to Ba's letter in the word's real
+      // spelling. See LETTERS[x].silentCompanion.
+      const companionImg = LETTERS[companionId].letterImg;
+      const companionBox = el('div', 'reading-box');
+      const companionImgEl = document.createElement('img');
+      companionImgEl.className = 'reading-box-img';
+      companionImgEl.alt = companionImg;
+      companionImgEl.src = companionImg;
+      companionBox.appendChild(companionImgEl);
+      positionAbsolute(companionBox, companionLeft, companionTop, companionSize, companionSize);
+      stage.appendChild(companionBox);
     }
 
     return stage;
@@ -1784,10 +1907,13 @@
         contentEl.appendChild(buildReadingStage(frame.sa, frame.ba, frame.active));
         break;
       }
-      case 'saba-reveal': {
+      case 'word-reveal': {
         // Content in its own right (like 'yay'), not narration — the word
         // itself renders, via the same letter-image stage as the reading
-        // round, with Granddad's clip layered in behind it.
+        // round, with a clip layered in behind it. Generic across
+        // chapters — buildSabaRevealStage's name predates chapter 2, but
+        // the function itself only ever reads frame.sa/ba/video/sound, so
+        // it's reused verbatim for Kana (and every chapter after it).
         contentEl.appendChild(buildSabaRevealStage(frame));
         break;
       }
