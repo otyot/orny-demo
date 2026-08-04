@@ -417,12 +417,12 @@
     // clips (original was 1176x784 at ~1.4MB; this is 960x640 at ~245KB).
     para_video: 'assets/para.mp4',
     // Final full-sentence celebration ("סַבָּא קָנָה פָּרָה" — Granddad bought a
-    // cow), played after the sentence-reading round below. Noam is making
-    // this clip separately and will drop it in later — filename agreed on
-    // ahead of time so wiring it in later is just adding the file, no code
-    // change. Falls back gracefully (see buildFinalRevealStage) if the file
-    // isn't there yet: no video element renders, sound/confetti still fire.
-    sentence_reveal_video: 'assets/saba-kana-para.mp4',
+    // cow), played after the sentence-reading round below. Same treatment
+    // as every other reveal clip: downscaled + audio stripped + faststart
+    // remux (original was 1920x1080 at ~8.16MB; this is 1280x720 at
+    // ~680KB, matching saba-wave-compressed.mp4's width since both are
+    // 16:9 "big finale" clips).
+    sentence_reveal_video: 'assets/saba-para-level-complete.mp4',
   };
 
   // ---------------------------------------------------------------------
@@ -1578,7 +1578,14 @@
   // nowhere near the wide teaching-round gap. Collapsing these gaps this
   // much (vs. the teaching round's 0.06/0.02/0.11) also shrinks the row's
   // total width a lot, which per Noam is the point, not a side effect.
-  const SENTENCE_STAGE_WIDTH_FRACTION = 0.92;  // the whole 9-glyph row, of content width
+  // 0.92 (matching the teaching rounds' width budget) read as too tight on
+  // screen once this round's spacing was tightened to read like ordinary
+  // text — Noam drew a reference border roughly 79% as wide as the row
+  // was rendering at, so this scales the whole row down to match (the row
+  // is width-bound at this budget — see buildSentenceStage — so the
+  // rendered union width tracks this fraction directly, no other constant
+  // needs to move).
+  const SENTENCE_STAGE_WIDTH_FRACTION = 0.72;  // the whole 9-glyph row, of content width
   const SENTENCE_STAGE_HEIGHT_FRACTION = 0.40; // tallest letter, of content height — same budget as the single-word letters round
   const SENTENCE_LETTER_GAP_FRACTION = 0.015;  // a word's own two taught letters sit close, ordinary in-word spacing, not the teaching-round gap
   const SENTENCE_COMPANION_GAP_FRACTION = 0.01; // silent companion sits closer still against its host, same reasoning
