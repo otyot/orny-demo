@@ -1042,7 +1042,16 @@
   const STORY_LOOP_CENTER_SHIFT = { ka: -0.32, na: -0.02, pa: -0.19, ra: 0.16 };
   const READING_CHAR_GAP_EXTRA = { 'ka|na': 0.03 }; // extra gap fraction, added on top of READING_CHAR_GAP_FRACTION, between Ka/Na's facing ink edges — Noam: spread them apart more so the eye can land on each one separately.
   const READING_CHAR_CENTER_SHIFT = { 'ka|na': -0.075 }; // fraction of screen width to shift the whole Ka+Na pair left — Noam: treat the LETTERS round as "zero" and land the characters as close to that same spot as possible, so the transition from character to letter reads as the same object, not a jump. Measured off Noam's own overlay comparison (characters screenshot laid over the letters screenshot): Ka's ink wanted to move left by more than Na's, so this is the average of the two — an exact match isn't possible with one shared shift (per Noam: doesn't need to land on the pixel).
-  const READING_CHAR_VERTICAL_SHIFT = { 'ka|na': 0.06 }; // fraction of screen height to shift the whole Ka+Na pair DOWN, same "land on the letters" reasoning as the horizontal shift above, just on the Y axis. Missing keys default to 0 — Sa/Ba never needed this and stay untouched.
+  // fraction of screen height to shift a pair DOWN, same "land on the
+  // letters" reasoning as the horizontal shift above, just on the Y axis.
+  // Missing keys default to 0 — Sa/Ba never needed this and stay
+  // untouched. Pa/Ra's natural y0 (no shift) measured at ~273px on a
+  // 781px-tall stage vs. Sa/Ba's and Ka/Na's own y0 landing at ~397px —
+  // Noam: bring Pa/Ra down to sit where the other two pairs already do.
+  // (273 + 0.16*781 ≈ 398, matching). If the picture underneath ends up
+  // partly clipped by the stage edge at this position, that's fine, per
+  // Noam — the shift is the fix, not a smaller/cropped image.
+  const READING_CHAR_VERTICAL_SHIFT = { 'ka|na': 0.06, 'pa|ra': 0.16 };
   // letterId -> measurements of where that letter's character sits within
   // its window, taken off the real pixels when the window is computed (see
   // getReadingWindow). All in window coordinates:
