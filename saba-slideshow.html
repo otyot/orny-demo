@@ -790,17 +790,14 @@
         // as he "arrives", same idea as Saba's arm-lift trigger below.
         confettiAt: 2.0,
         // kana.mp4 is portrait (900x1024) inside a landscape stage, so
-        // object-fit:contain letterboxes it with big empty gutters left
-        // and right of center. Saba's clip is wide enough to use the full
-        // stage width, so he visually enters from the screen's left edge;
-        // to get the same "entering from the side" read here, pull the
-        // whole letterboxed video left instead of leaving it centered
-        // (15%, of the ~647px total gutter at current stage size, puts
-        // its left edge roughly 100px off the screen edge — close in
-        // without touching it. object-position, not a transform, since
-        // this only needs to shift where object-fit centers the content,
-        // not move the stage's own box).
-        videoPosition: '15% center',
+        // object-fit:contain letterboxes it with empty gutters left and
+        // right of center. Tried pulling it toward the left edge (to echo
+        // how Saba's wide clip visually enters from screen-left) but at
+        // this letterbox width that pushed the boy under the letter boxes
+        // rendered on top, hiding the teddy bear the kids are meant to
+        // see — Noam: push it back. Left at the default centered position
+        // (no videoPosition set — see buildSabaRevealStage's '50% center'
+        // fallback for any frame that doesn't set one).
         word: 'קָנָה',
       }),
     ];
