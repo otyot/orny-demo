@@ -1354,6 +1354,32 @@
     });
   }
   preloadAllImages(frames);
+  // Videos are heavy relative to everything else in the deck, and each
+  // video-reveal frame (saba-reveal, kana-reveal, para-reveal, sentence-
+  // reveal) only creates its <video> element when the person actually taps
+  // into that exact frame — far too late to start the download. Instead,
+  // fire off a hidden <video preload="auto"> for every unique video src the
+  // WHOLE deck uses, right at page load, so the browser's own HTTP cache has
+  // already fetched the bytes in the background (while the child is still
+  // working through letters, minutes earlier) by the time each reveal frame
+  // builds its real <video> element with the same src. Muted + display:none
+  // so nothing is seen or heard; never appended visibly, never played.
+  function preloadAllVideos(allFrames) {
+    const seen = new Set();
+    allFrames.forEach((f) => {
+      const src = f.video;
+      if (!src || seen.has(src)) return;
+      seen.add(src);
+      const v = document.createElement('video');
+      v.preload = 'auto';
+      v.muted = true;
+      v.style.display = 'none';
+      v.src = src;
+      v.load();
+      document.body.appendChild(v);
+    });
+  }
+  preloadAllVideos(frames);
   // Warms readingWindowCache/croppedImageCache for every reading-pair slot
   // AT PAGE LOAD, before the person ever taps into that phase. Confirmed by
   // direct measurement: without this, the FIRST time a given crop is needed
