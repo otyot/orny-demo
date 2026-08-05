@@ -192,9 +192,19 @@
     height: 100%;
     object-fit: contain;
   }
+  /* Lives inside #ui-overlay now (see the "LOCKED DESIGN DECISION" comment
+     below on #ui-overlay) — a fixed-position bar drawn OVER the bottom of
+     the stage, not a flex sibling that shrinks #content anymore. This is
+     what makes it a true UI-layer resident: #content always measures the
+     full stage regardless of whether this bar exists, has any text, or is
+     ever deleted outright — none of that can ever feed back into the
+     teaching-phase rect math. Hidden completely (caption-bar--empty) when
+     the current frame has no caption text, instead of always showing an
+     empty dark strip. */
   #caption-bar {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
     height: var(--caption-h);
-    flex-shrink: 0;
     background: #111;
     color: #fff;
     display: flex;
@@ -204,6 +214,7 @@
     font-size: clamp(15px, 2.6vw, 19px);
     text-align: center;
   }
+  #caption-bar.caption-bar--empty { display: none; }
   #hud {
     position: fixed;
     top: 8px; right: 12px;
@@ -279,15 +290,19 @@
 <body>
 <div id="stage">
   <div id="content"></div>
-  <div id="caption-bar"><span id="caption-text"></span></div>
 </div>
 <div id="hud"></div>
 <div id="frame-id"></div>
 <div id="back-btn">&#8249;</div>
 <!-- UI OVERLAY LAYER — see the "LOCKED DESIGN DECISION" comment above.
      Fixed, click-through, lives outside #stage entirely. Confetti canvas
-     is the first thing in it; future game-UI chrome joins it here. -->
-<div id="ui-overlay"><canvas id="confetti-canvas"></canvas></div>
+     and the caption bar live in here — this whole div (markup, CSS, and
+     its JS section below) can be deleted outright and the teaching build
+     keeps running untouched; see MOMENTS.onFrameRendered in the JS. -->
+<div id="ui-overlay">
+  <canvas id="confetti-canvas"></canvas>
+  <div id="caption-bar"><span id="caption-text"></span></div>
+</div>
 
 <script>
 /* =========================================================================
@@ -310,8 +325,11 @@
       itself from this data.
 
    3) CAPTIONS: CAPTIONS[frameId] = 'subtitle text'. Leave '' for silence.
-      Press the "i" key while viewing the deck to show each frame's id in
-      the top-left corner, so you know which id to paste text against.
+      Lives in the UI OVERLAY LAYER section further down (search
+      "CAPTION MODULE"), not up here with ASSETS/LETTERS — captions are a
+      UI-layer concern, not part of the teaching build itself. Press the
+      "i" key while viewing the deck to show each frame's id in the
+      top-left corner, so you know which id to paste text against.
 
    4) MOMENTS: MOMENTS.onX(...) functions are called at key beats — see
       buildSabaRevealStage for the confetti/sound hookup on word-reveal.
@@ -569,12 +587,12 @@
   };
 
   // ---------------------------------------------------------------------
-  // 3) CAPTIONS — paste narration/subtitle text per frame id. Empty = silent.
-  //    (Frame ids are auto-listed after the deck builds; press "i" to see them live.)
+  // 3) CAPTIONS — this data now lives in the UI OVERLAY LAYER section
+  //    further down (search for "CAPTIONS" near #ui-overlay's JS), not
+  //    here. Captions are purely a UI-layer concern: the build never reads
+  //    or writes caption text itself, only fires MOMENTS.onFrameRendered
+  //    below and lets the UI layer decide what to do with it.
   // ---------------------------------------------------------------------
-  const CAPTIONS = {
-    // 'sa-character': 'Hi, I\'m Sa!',
-  };
 
   // ---------------------------------------------------------------------
   // 4) MOMENT HOOKS — no-ops in Pass 1. Pass 2 attaches effects here.
@@ -583,6 +601,13 @@
     onCorrectAnswerConfirmed(frame) {},
     onCycleComplete(letterId) {},
     onFinalWordRevealed() {},
+    // Called unconditionally at the end of every renderFrame() — the one
+    // seam the UI layer uses to know a new frame is showing. No-op here by
+    // design: the build itself has zero caption/UI-layer awareness. The
+    // real implementation is attached from the UI OVERLAY LAYER section
+    // further down (see #ui-overlay's caption module) — delete that
+    // section and this stays a harmless no-op, nothing here breaks.
+    onFrameRendered(frame) {},
   };
 
   // =========================================================================
@@ -936,8 +961,6 @@
   // =========================================================================
 
   const frames = buildDeck();
-  // Auto-fill any caption not explicitly set, so CAPTIONS always has every id.
-  frames.forEach((f) => { if (!(f.id in CAPTIONS)) CAPTIONS[f.id] = ''; });
 
   // Preload every image referenced anywhere in the deck up front, so the
   // browser already has each one decoded/cached by the time a tap reaches
@@ -1439,7 +1462,6 @@
 
   let index = 0;
   const contentEl = document.getElementById('content');
-  const captionEl = document.getElementById('caption-text');
   const hudEl = document.getElementById('hud');
   const frameIdEl = document.getElementById('frame-id');
 
@@ -1454,6 +1476,30 @@
   // a couple of seconds), per Noam: "keeping it small, not too many
   // pyrotechnics."
   // ---------------------------------------------------------------------
+  // CAPTION MODULE — second resident of #ui-overlay. Fully self-contained:
+  // owns its own CAPTIONS data, grabs its own elements, and is the only
+  // thing that ever assigns MOMENTS.onFrameRendered. The build calls that
+  // hook unconditionally after every renderFrame() (see MOMENTS above) but
+  // has no idea what, if anything, is listening — delete this whole block
+  // (plus the #caption-bar markup/CSS) and MOMENTS.onFrameRendered just
+  // goes back to being the no-op it's declared as, no errors anywhere.
+  //
+  // CAPTIONS[frameId] = 'subtitle text'. Leave unset (or '') for silence —
+  // the bar hides itself completely (see .caption-bar--empty) rather than
+  // showing an empty dark strip. Press "i" while viewing the deck to see
+  // each frame's id in the top-left corner, so you know which id to paste
+  // text against.
+  const CAPTIONS = {
+    // 'sa-character': 'Hi, I\'m Sa!',
+  };
+  const captionEl = document.getElementById('caption-text');
+  const captionBarEl = document.getElementById('caption-bar');
+  MOMENTS.onFrameRendered = (frame) => {
+    const text = CAPTIONS[frame.id] || '';
+    captionEl.textContent = text;
+    captionBarEl.classList.toggle('caption-bar--empty', !text);
+  };
+
   const confettiCanvas = document.getElementById('confetti-canvas');
   const confettiCtx = confettiCanvas.getContext && confettiCanvas.getContext('2d');
   let confettiParticles = [];
@@ -2467,13 +2513,13 @@
       }
     }
 
-    captionEl.textContent = CAPTIONS[frame.id] || '';
     hudEl.textContent = `${index + 1} / ${frames.length}`;
     frameIdEl.textContent = frame.id;
 
     if (frame.moment && MOMENTS[frame.moment]) {
       MOMENTS[frame.moment](frame.momentArg !== undefined ? frame.momentArg : frame);
     }
+    MOMENTS.onFrameRendered(frame);
   }
 
   function goTo(i) {
