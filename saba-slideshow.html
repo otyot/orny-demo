@@ -838,17 +838,32 @@
   // inside the full sentence — same attention cue used throughout this
   // whole deck (see .reading-box--pulse), no new interaction language.
   // Ends on the same still sentence once more, then the final celebration.
-  function buildFinalSentencePhase() {
+  // One full pass through the sentence: still → each letter pulses in
+  // order → still again. roundSuffix keeps every frame id unique across
+  // the two rounds below (e.g. 'sentence-intro-1' vs 'sentence-intro-2') —
+  // nothing else in the deck looks up these ids by exact string, so a
+  // plain suffix is all that's needed.
+  function buildSentenceRound(roundSuffix) {
     const pulseOrder = ['sa', 'ba', 'ka', 'na', 'pa', 'ra'];
     return [
-      { id: 'sentence-intro', kind: 'sentence-reading', active: null,
+      { id: `sentence-intro${roundSuffix}`, kind: 'sentence-reading', active: null,
         text: 'סַבָּא קָנָה פָּרָה' },
       ...pulseOrder.map((id) => ({
-        id: `sentence-pulse-${id}`, kind: 'sentence-reading', active: id,
+        id: `sentence-pulse-${id}${roundSuffix}`, kind: 'sentence-reading', active: id,
         text: `${LETTERS[id].name}!`,
       })),
-      { id: 'sentence-outro', kind: 'sentence-reading', active: null,
+      { id: `sentence-outro${roundSuffix}`, kind: 'sentence-reading', active: null,
         text: 'סַבָּא קָנָה פָּרָה' },
+    ];
+  }
+  // Two full rounds back to back ("I go first, then you") — Noam found one
+  // pass asked too much of the child in one go, so the same still→pulse→
+  // still sequence simply repeats once before the single celebration at
+  // the end (the celebration itself is not duplicated, only the reading).
+  function buildFinalSentencePhase() {
+    return [
+      ...buildSentenceRound('-1'),
+      ...buildSentenceRound('-2'),
       { id: 'sentence-reveal', kind: 'sentence-reveal',
         video: ASSETS.sentence_reveal_video, sound: ASSETS.saba_level_complete_sound,
         confettiAt: 1.0, text: 'סַבָּא קָנָה פָּרָה' },
@@ -1376,6 +1391,7 @@
   // reveal frame builds later, with the same src, gets served from cache
   // instantly instead of hitting the network cold.
   function preloadAllVideos(allFrames) {
+    if (typeof fetch !== 'function') return; // defensive: every real target browser has fetch
     const seen = new Set();
     allFrames.forEach((f) => {
       const src = f.video;
