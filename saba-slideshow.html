@@ -1364,19 +1364,24 @@
   // working through letters, minutes earlier) by the time each reveal frame
   // builds its real <video> element with the same src. Muted + display:none
   // so nothing is seen or heard; never appended visibly, never played.
+  // A hidden <video preload="auto"> element was tried first here, but Chrome
+  // deliberately throttles preloading for video elements that are
+  // display:none / never played — confirmed by measurement: readyState and
+  // networkState never progressed past "loading" even 5+ seconds after
+  // being added, and no byte transfer showed up in the network log. A plain
+  // fetch() has no such throttling — it downloads the file into the
+  // browser's ordinary HTTP cache (GitHub Pages serves these with
+  // cache-control: max-age=600, comfortably longer than it takes a child to
+  // work through the rest of the deck), so the real <video> element each
+  // reveal frame builds later, with the same src, gets served from cache
+  // instantly instead of hitting the network cold.
   function preloadAllVideos(allFrames) {
     const seen = new Set();
     allFrames.forEach((f) => {
       const src = f.video;
       if (!src || seen.has(src)) return;
       seen.add(src);
-      const v = document.createElement('video');
-      v.preload = 'auto';
-      v.muted = true;
-      v.style.display = 'none';
-      v.src = src;
-      v.load();
-      document.body.appendChild(v);
+      fetch(src, { credentials: 'omit' }).catch(() => {});
     });
   }
   preloadAllVideos(frames);
