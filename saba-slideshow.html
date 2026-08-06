@@ -1539,6 +1539,13 @@
   const HUE_STEP_DEG = 28;
   const HUE_PULSE_MS = 3000;
   let hueTotal = 0;
+  // The existing resize listener further down (search "Re-render on
+  // resize") calls renderFrame() again on the SAME frame whenever the
+  // window resizes — harmless for captions (same text gets set again) but
+  // would double-pulse the hue on every resize if left unguarded. This
+  // dedupes against that: only pulse when we've actually landed on a
+  // trigger frame we weren't already sitting on.
+  let lastRenderedFrameId = null;
   function pulseBackgroundHue() {
     if (!bgLayerEl.animate) return; // defensive: every target browser has this
     const from = hueTotal;
@@ -1552,7 +1559,10 @@
     const previousOnFrameRendered = MOMENTS.onFrameRendered;
     MOMENTS.onFrameRendered = (frame) => {
       previousOnFrameRendered(frame);
-      if (HUE_TRIGGER_IDS.has(frame.id)) pulseBackgroundHue();
+      if (HUE_TRIGGER_IDS.has(frame.id) && frame.id !== lastRenderedFrameId) {
+        pulseBackgroundHue();
+      }
+      lastRenderedFrameId = frame.id;
     };
   }
 
