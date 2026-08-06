@@ -318,13 +318,13 @@
   #delight-bar {
     position: fixed;
     top: 14px;
-    left: var(--board-inset);
-    right: var(--board-inset);
+    right: calc(var(--board-inset) + 28px);
     height: 70px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0 24px;
+    gap: 18px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
   }
   #progress-track {
     display: flex;
