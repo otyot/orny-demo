@@ -624,7 +624,6 @@
       id: `${L.id}-character`,
       kind: 'solo-character',
       img: L.characterImg,
-      text: `This is ${L.name}. ${L.name} likes hiding in the…`,
     });
 
     // 2. Reveal picture (no breakdown yet)
@@ -632,7 +631,6 @@
       id: `${L.id}-picture`,
       kind: 'picture-reveal',
       img: L.pictureImg,
-      text: `${L.pictureName}!`,
     });
 
     // 3..n. Anchor each element on the plain picture — CUMULATIVE: every
@@ -647,7 +645,6 @@
         imgs: [L.pictureImg, ...shownOnPicture],
         animateSrc: elmt.overlayImg, // only the element that's new THIS tap pops in
         animateOrigin: elmt.origin,
-        text: elmt.label,
       });
     });
 
@@ -662,7 +659,6 @@
       kind: 'anchor',
       imgs: [...redrillBase],
       fadeBase: true,
-      text: `${L.name}!`,
     });
 
     const shownInRedrill = [];
@@ -675,7 +671,6 @@
         fadeBase: true,
         animateSrc: elmt.overlayImg, // only the element, never the character, pops in
         animateOrigin: elmt.origin,
-        text: elmt.label,
       });
     });
 
@@ -685,7 +680,6 @@
       id: `${L.id}-redrill-answer`,
       kind: 'picture-reveal',
       img: L.pictureImg,
-      text: `${L.pictureName}!`,
       moment: 'onCorrectAnswerConfirmed',
     });
 
@@ -697,13 +691,11 @@
       kind: 'anchor',
       imgs: [...redrillBase],
       fadeBase: true,
-      text: `${L.name} likes hiding in the…?`,
     });
     frames.push({
       id: `${L.id}-recall-answer`,
       kind: 'recall-answer',
       img: L.pictureImg,
-      text: `${L.pictureName}!`,
       moment: 'onCorrectAnswerConfirmed',
     });
 
@@ -736,13 +728,11 @@
         kind: 'anchor',
         imgs: [L.pictureImg, L.characterImg],
         fadeBase: true,
-        text: `Where does ${L.name} like to hide?`,
       });
       frames.push({
         id: `${L.id}-hiding-answer`,
         kind: 'picture-reveal',
         img: L.pictureImg,
-        text: `${L.pictureName}!`,
         moment: 'onCorrectAnswerConfirmed',
       });
     });
@@ -816,42 +806,31 @@
 
     return [
       // Round 1 — teacher demonstrates each name in turn.
-      { id: `${idPrefix}reading-intro`, kind: 'reading-pair', sa: rightCharacter, ba: leftCharacter, active: null,
-        text: 'Let’s call them by their names, one at a time. I’ll go first.' },
-      { id: `${idPrefix}reading-demo-${rightId}`, kind: 'reading-pair', sa: rightComposite, ba: leftCharacter, active: rightId,
-        text: `${right.name}!` },
-      { id: `${idPrefix}reading-demo-${leftId}`, kind: 'reading-pair', sa: rightCharacter, ba: leftComposite, active: leftId,
-        text: `${left.name}!` },
+      { id: `${idPrefix}reading-intro`, kind: 'reading-pair', sa: rightCharacter, ba: leftCharacter, active: null },
+      { id: `${idPrefix}reading-demo-${rightId}`, kind: 'reading-pair', sa: rightComposite, ba: leftCharacter, active: rightId },
+      { id: `${idPrefix}reading-demo-${leftId}`, kind: 'reading-pair', sa: rightCharacter, ba: leftComposite, active: leftId },
 
       // Round 2 — same visuals, kid's turn (silent prompts).
-      { id: `${idPrefix}reading-your-turn`, kind: 'reading-pair', sa: rightCharacter, ba: leftCharacter, active: null,
-        text: 'Now it’s your turn.' },
-      { id: `${idPrefix}reading-kid-${rightId}`, kind: 'reading-pair', sa: rightComposite, ba: leftCharacter, active: rightId,
-        text: '' },
-      { id: `${idPrefix}reading-kid-${leftId}`, kind: 'reading-pair', sa: rightCharacter, ba: leftComposite, active: leftId,
-        text: '' },
+      { id: `${idPrefix}reading-your-turn`, kind: 'reading-pair', sa: rightCharacter, ba: leftCharacter, active: null },
+      { id: `${idPrefix}reading-kid-${rightId}`, kind: 'reading-pair', sa: rightComposite, ba: leftCharacter, active: rightId },
+      { id: `${idPrefix}reading-kid-${leftId}`, kind: 'reading-pair', sa: rightCharacter, ba: leftComposite, active: leftId },
 
       // Round 3 — same drill, now with the real letters (gap between them).
-      { id: `${idPrefix}reading-letters-intro`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: null,
-        text: 'Again!' },
-      { id: `${idPrefix}reading-letters-${rightId}`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: rightId,
-        text: `${right.name}!` },
-      { id: `${idPrefix}reading-letters-${leftId}`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: leftId,
-        text: `${left.name}!` },
-      { id: `${idPrefix}reading-letters-combine`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: null,
-        text: 'What did we get?' },
+      { id: `${idPrefix}reading-letters-intro`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: null },
+      { id: `${idPrefix}reading-letters-${rightId}`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: rightId },
+      { id: `${idPrefix}reading-letters-${leftId}`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: leftId },
+      { id: `${idPrefix}reading-letters-combine`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: null },
 
       // Final reveal — same word, same geometry as reading-letters-combine
       // (built via buildReadingStage so it doesn't jump on this tap), with
-      // a clip layered in behind it. frame.text is reference-only, same
-      // convention as the teaching-cycle frames above. `kind: 'word-reveal'`
+      // a clip layered in behind it. `kind: 'word-reveal'`
       // is the generic name (see buildWordRevealStage) — reused verbatim
       // by every chapter's reveal, not specific to Saba despite the
       // function's historical name.
       { id: opts.revealId, kind: 'word-reveal', sa: rightLetter, ba: leftLetter,
         video: opts.video, sound: opts.sound, confettiAt: opts.confettiAt,
         videoPosition: opts.videoPosition,
-        text: opts.word, moment: 'onFinalWordRevealed' },
+        moment: 'onFinalWordRevealed' },
     ];
   }
 
@@ -871,14 +850,11 @@
   function buildSentenceRound(roundSuffix) {
     const pulseOrder = ['sa', 'ba', 'ka', 'na', 'pa', 'ra'];
     return [
-      { id: `sentence-intro${roundSuffix}`, kind: 'sentence-reading', active: null,
-        text: 'סַבָּא קָנָה פָּרָה' },
+      { id: `sentence-intro${roundSuffix}`, kind: 'sentence-reading', active: null },
       ...pulseOrder.map((id) => ({
         id: `sentence-pulse-${id}${roundSuffix}`, kind: 'sentence-reading', active: id,
-        text: `${LETTERS[id].name}!`,
       })),
-      { id: `sentence-outro${roundSuffix}`, kind: 'sentence-reading', active: null,
-        text: 'סַבָּא קָנָה פָּרָה' },
+      { id: `sentence-outro${roundSuffix}`, kind: 'sentence-reading', active: null },
     ];
   }
   // Two full rounds back to back ("I go first, then you") — Noam found one
@@ -891,7 +867,7 @@
       ...buildSentenceRound('-2'),
       { id: 'sentence-reveal', kind: 'sentence-reveal',
         video: ASSETS.sentence_reveal_video, sound: ASSETS.saba_level_complete_sound,
-        confettiAt: 1.0, text: 'סַבָּא קָנָה פָּרָה' },
+        confettiAt: 1.0 },
     ];
   }
 
@@ -2448,9 +2424,9 @@
     switch (frame.kind) {
       // NOTE: no on-screen text for the teaching-cycle frames below — Noam
       // narrates live and the caption strip (subtitle-style) carries the
-      // words. frame.text is kept on the data for reference/Pass-2 use, it's
-      // just not rendered here. ('Yay!' and the word-reveal are content in
-      // their own right, not narration, so those still render text.)
+      // words, written directly in Hebrew in the UI OVERLAY LAYER's
+      // CAPTIONS map (search "CAPTION MODULE"). ('Yay!' is content in its
+      // own right, not narration, so it still renders text.)
       // solo-character / picture-reveal / anchor / blank / recall-prompt /
       // recall-answer ALL go through the same buildCompositeStage box, so
       // size and position never jump between them.
@@ -2483,7 +2459,8 @@
       }
       case 'reading-pair': {
         // No on-screen text here either — same narration-lives-live rule as
-        // the teaching-cycle frames above. frame.text is reference-only.
+        // the teaching-cycle frames above; captions come from the UI
+        // layer's CAPTIONS map, not from frame data.
         contentEl.appendChild(buildReadingStage(frame.sa, frame.ba, frame.active));
         break;
       }
@@ -2500,7 +2477,7 @@
       case 'sentence-reading': {
         // Final capstone round — the full taught sentence, one letter
         // pulsing per tap. Same narration-lives-live rule as reading-pair
-        // above; frame.text is reference-only.
+        // above; captions come from the UI layer's CAPTIONS map.
         contentEl.appendChild(buildSentenceStage(frame));
         break;
       }
