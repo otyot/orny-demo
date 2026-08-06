@@ -315,25 +315,47 @@
      colored background layer, never reserves space in #stage's flex
      column, never touches #content's rect. Delete this rule block (plus
      the markup and its JS module) and everything else keeps running. */
-  /* Grouped cluster (notches + XP + dragon), top-right, per reference mockup */
+  /* Grouped cluster (notches+line, XP pill hanging below-right, dragon to
+     the right), top-right, matched pixel-for-pixel against the designer's
+     Photoshop reference mockup. */
   #delight-bar {
     position: fixed;
-    top: 14px;
-    right: calc(var(--board-inset) + 28px);
-    height: 70px;
+    top: 22px;
+    right: calc(var(--board-inset) + 40px);
     display: flex;
-    align-items: center;
-    gap: 18px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--line);
+    align-items: flex-start;
+    gap: 26px;
   }
-  #progress-track {
+  #meter-group {
     display: flex;
+    flex-direction: column;
+    align-items: flex-end;
     gap: 10px;
   }
+  #progress-track {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+  }
+  /* connecting stepper line, drawn behind the notches so each opaque
+     notch visually "breaks" it into segments — matches the reference */
+  #progress-track::before {
+    content: '';
+    position: absolute;
+    left: 9px;
+    right: 9px;
+    top: 50%;
+    height: 2px;
+    background: var(--line);
+    transform: translateY(-50%);
+    z-index: 0;
+  }
   .progress-notch {
-    width: 16px;
-    height: 16px;
+    position: relative;
+    z-index: 1;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
     border: 2px solid var(--line);
     background: #fff;
@@ -348,8 +370,15 @@
     align-items: center;
     gap: 6px;
     font-weight: 700;
-    font-size: 16px;
+    font-size: 15px;
     color: var(--ink);
+    background: #fff;
+    border: 1.5px solid var(--line);
+    border-radius: 999px;
+    padding: 5px 14px;
+  }
+  #xp-badge .xp-label {
+    color: #3498db;
   }
   #xp-badge.xp-badge--pulse {
     animation: xpPulse 0.4s ease-out;
@@ -359,14 +388,24 @@
     50% { transform: scale(1.18); }
   }
   #xp-star {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     object-fit: contain;
   }
+  /* Box aspect matches dragon-idle.png's native 480:522 exactly, so the
+     idle art fills it edge-to-edge with zero letterboxing slack. The clap
+     video (320:320) is measurably a different aspect/crop from the idle
+     art (verified via ink-bounding-box analysis of both assets), so without
+     this the two would visually "jump" — the character sitting at a
+     different height — the instant idle swaps to clap. Matching the box to
+     idle's aspect plus top-anchoring both (object-position below) lines up
+     both assets' actual character (not canvas) bottom edge to within
+     <0.2% of the box height. */
   #dragon-mascot {
     position: relative;
-    width: 70px;
-    height: 70px;
+    height: 92px;
+    aspect-ratio: 480 / 522;
+    flex-shrink: 0;
   }
   #dragon-mascot img,
   #dragon-mascot video {
@@ -375,6 +414,7 @@
     width: 100%;
     height: 100%;
     object-fit: contain;
+    object-position: top center;
   }
   #dragon-clap-video { display: none; }
   #dragon-mascot.dragon--playing #dragon-idle-img { display: none; }
@@ -407,17 +447,20 @@
        mascot (idle/clap), and the XP counter. See the CSS comment above
        #delight-bar and the JS "DELIGHT BAR MODULE" further down. -->
   <div id="delight-bar">
-    <div id="progress-track">
-      <div class="progress-notch"></div>
-      <div class="progress-notch"></div>
-      <div class="progress-notch"></div>
-      <div class="progress-notch"></div>
-      <div class="progress-notch"></div>
-      <div class="progress-notch"></div>
-    </div>
-    <div id="xp-badge">
-      <span id="xp-value">0</span>
-      <img id="xp-star" src="assets/star.png" alt="">
+    <div id="meter-group">
+      <div id="progress-track">
+        <div class="progress-notch"></div>
+        <div class="progress-notch"></div>
+        <div class="progress-notch"></div>
+        <div class="progress-notch"></div>
+        <div class="progress-notch"></div>
+        <div class="progress-notch"></div>
+      </div>
+      <div id="xp-badge">
+        <span id="xp-value">0</span>
+        <span class="xp-label">XP</span>
+        <img id="xp-star" src="assets/star.png" alt="">
+      </div>
     </div>
     <div id="dragon-mascot">
       <img id="dragon-idle-img" src="assets/dragon-idle.png" alt="">
