@@ -11,6 +11,7 @@
     --paper: #ffffff;
     --muted: #8a8a8e;
     --line: #e2e2e5;
+    --board-inset: 14%; /* how much background peeks through on left/right */
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -19,8 +20,37 @@
     background: var(--paper); color: var(--ink);
     touch-action: manipulation;
   }
-  #stage {
+  /* BACKGROUND LAYER — bottommost of the three layers (background under
+     the build under the UI overlay). Lives outside #stage entirely, first
+     child of <body> so it paints behind everything else by DOM order
+     alone (same trick #ui-overlay uses in reverse to always paint on top).
+     Full-viewport, click-through, never touches #content's measured rect
+     — deleting this div (and its one CSS rule) leaves the build running
+     exactly as before, full-bleed white, same as it shipped originally.
+     The slow color drift (see BACKGROUND HUE MODULE in the JS) animates
+     this element's own `filter`, nothing else. */
+  #bg-layer {
     position: fixed; inset: 0;
+    background-image: url('assets/lesson-background.png');
+    background-size: cover;
+    background-position: center;
+    pointer-events: none;
+    z-index: 0;
+  }
+  /* THE GAME BOARD — Noam's spec: plain white, sharp corners (none of
+     that rounded-card look), spans the full height edge-to-edge
+     ("ceiling to floor"), inset only on left/right so the background
+     peeks through on both sides. This IS #stage itself (not a separate
+     image) so it can never drift out of alignment with the actual
+     content — see the "why not a PNG" note from the background-layer
+     design discussion. --board-inset is the one knob to widen/narrow it. */
+  #stage {
+    position: fixed;
+    top: 0; bottom: 0;
+    left: var(--board-inset); right: var(--board-inset);
+    background: var(--paper);
+    box-shadow: 0 0 60px 10px rgba(0, 0, 0, 0.4);
+    z-index: 1;
     display: flex; flex-direction: column;
     user-select: none; -webkit-user-select: none;
   }
@@ -288,6 +318,7 @@
 </style>
 </head>
 <body>
+<div id="bg-layer"></div>
 <div id="stage">
   <div id="content"></div>
 </div>
@@ -1453,12 +1484,13 @@
   // pyrotechnics."
   // ---------------------------------------------------------------------
   // CAPTION MODULE — second resident of #ui-overlay. Fully self-contained:
-  // owns its own CAPTIONS data, grabs its own elements, and is the only
-  // thing that ever assigns MOMENTS.onFrameRendered. The build calls that
-  // hook unconditionally after every renderFrame() (see MOMENTS above) but
-  // has no idea what, if anything, is listening — delete this whole block
-  // (plus the #caption-bar markup/CSS) and MOMENTS.onFrameRendered just
-  // goes back to being the no-op it's declared as, no errors anywhere.
+  // owns its own CAPTIONS data, grabs its own elements. Chains onto
+  // whatever MOMENTS.onFrameRendered already was (see the chaining note
+  // below the BACKGROUND HUE MODULE) rather than overwriting it, so any
+  // number of these UI-layer modules can coexist — deleting this whole
+  // block (plus the #caption-bar markup/CSS) just removes this one link;
+  // every other module keeps working, and if this were the only one, it
+  // cleanly falls back to being a no-op again.
   //
   // CAPTIONS[frameId] = 'subtitle text'. Leave unset (or '') for silence —
   // the bar hides itself completely (see .caption-bar--empty) rather than
@@ -1470,11 +1502,59 @@
   };
   const captionEl = document.getElementById('caption-text');
   const captionBarEl = document.getElementById('caption-bar');
-  MOMENTS.onFrameRendered = (frame) => {
-    const text = CAPTIONS[frame.id] || '';
-    captionEl.textContent = text;
-    captionBarEl.classList.toggle('caption-bar--empty', !text);
-  };
+  {
+    const previousOnFrameRendered = MOMENTS.onFrameRendered;
+    MOMENTS.onFrameRendered = (frame) => {
+      previousOnFrameRendered(frame);
+      const text = CAPTIONS[frame.id] || '';
+      captionEl.textContent = text;
+      captionBarEl.classList.toggle('caption-bar--empty', !text);
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // BACKGROUND HUE MODULE — third resident, lives entirely against
+  // #bg-layer (see the CSS comment above #bg-layer). Same "Mac wake
+  // screen" idea Noam described: on each trigger frame, the background's
+  // colors drift to a new hue over 3s (ease-out) and then FREEZE there
+  // (Web Animations API's `fill: 'forwards'`, the JS equivalent of the
+  // CSS fill-mode used elsewhere in this file) until the next trigger —
+  // never a continuous loop, so it can't tug at a learner's attention
+  // mid-task. Triggers on the start of each letter's teaching cycle and
+  // on each chapter's word-reveal — exactly the 9 ids below, chosen with
+  // Noam. hueTotal only ever increases (never wraps via %), so the
+  // animation's start/end values stay numerically monotonic across the
+  // whole lesson — no visual "snap back" when crossing 360°, since the
+  // browser doesn't need to know it's cyclical, it's just a bigger number.
+  // Delete this whole block and #bg-layer stays exactly as it loads, no
+  // color shift, nothing else affected — same pattern as every other
+  // module here.
+  // ---------------------------------------------------------------------
+  const bgLayerEl = document.getElementById('bg-layer');
+  const HUE_TRIGGER_IDS = new Set([
+    'sa-character', 'ba-character', 'ka-character',
+    'na-character', 'pa-character', 'ra-character',
+    'saba-reveal', 'kana-reveal', 'para-reveal',
+  ]);
+  const HUE_STEP_DEG = 28;
+  const HUE_PULSE_MS = 3000;
+  let hueTotal = 0;
+  function pulseBackgroundHue() {
+    if (!bgLayerEl.animate) return; // defensive: every target browser has this
+    const from = hueTotal;
+    hueTotal += HUE_STEP_DEG;
+    bgLayerEl.animate(
+      [{ filter: `hue-rotate(${from}deg)` }, { filter: `hue-rotate(${hueTotal}deg)` }],
+      { duration: HUE_PULSE_MS, easing: 'ease-out', fill: 'forwards' }
+    );
+  }
+  {
+    const previousOnFrameRendered = MOMENTS.onFrameRendered;
+    MOMENTS.onFrameRendered = (frame) => {
+      previousOnFrameRendered(frame);
+      if (HUE_TRIGGER_IDS.has(frame.id)) pulseBackgroundHue();
+    };
+  }
 
   const confettiCanvas = document.getElementById('confetti-canvas');
   const confettiCtx = confettiCanvas.getContext && confettiCanvas.getContext('2d');
