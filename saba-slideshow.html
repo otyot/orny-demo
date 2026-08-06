@@ -1798,9 +1798,9 @@
       burstConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2, {
         count: 18, sizeMin: 3, sizeSpread: 3,
       });
+      playDragonClap();
+      animateXpTo(xpTotal + XP_PER_LETTER);
     }
-    playDragonClap();
-    animateXpTo(xpTotal + XP_PER_LETTER);
   }
   {
     const previousOnCycleComplete = MOMENTS.onCycleComplete;
