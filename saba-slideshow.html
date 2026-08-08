@@ -1523,6 +1523,16 @@
         if (src && !seen.has(src)) {
           seen.add(src);
           const preloadEl = new Image();
+          // Explicit high priority — otherwise Chromium's own heuristics can
+          // quietly rank a detached, never-appended Image() as low-priority
+          // "probably not needed soon," letting it sit queued behind the much
+          // larger video fetches below even though, unlike the videos, EVERY
+          // one of these small picture/letter images can be needed within
+          // the next few taps. Confirmed via network timing that individual
+          // fetches of these files are fast (well under 100ms) in isolation,
+          // so a visible pop-in on a real (imperfect) connection means
+          // request PRIORITY, not raw bandwidth, was the bottleneck.
+          preloadEl.fetchPriority = 'high';
           preloadEl.onload = () => {
             imageDims.set(src, { w: preloadEl.naturalWidth, h: preloadEl.naturalHeight });
           };
@@ -1560,10 +1570,30 @@
       const src = f.video;
       if (!src || seen.has(src)) return;
       seen.add(src);
-      fetch(src, { credentials: 'omit' }).catch(() => {});
+      // priority: 'low' — each video is the single biggest thing this page
+      // ever downloads, and each is only needed once, minutes into the
+      // session. Left at default priority, these can crowd out the much
+      // smaller, much-sooner-needed picture/letter images fired off just
+      // above, causing exactly the kind of "it takes a second to pop in"
+      // stall reported on the Sal picture frame. Fetch Priority API
+      // (Chrome 101+, ignored harmlessly elsewhere).
+      fetch(src, { credentials: 'omit', priority: 'low' }).catch(() => {});
     });
   }
   preloadAllVideos(frames);
+  // BACKGROUND_GROUPS' images are applied on-demand (see the BACKGROUND
+  // GROUPS MODULE further down) — only the FIRST group's image is showing
+  // from page load, so every later group's image would otherwise sit
+  // completely un-fetched until the exact moment its chapter boundary is
+  // crossed, popping in cold. Warm every group's image into the browser's
+  // HTTP cache right away, same low-priority fetch()-not-<img> treatment as
+  // the videos above (also heavy-ish, also not needed for several minutes).
+  function preloadAllBackgrounds(groups) {
+    if (typeof fetch !== 'function') return;
+    groups.forEach((g) => {
+      fetch(g.src, { credentials: 'omit', priority: 'low' }).catch(() => {});
+    });
+  }
   // Warms readingWindowCache/croppedImageCache for every reading-pair slot
   // AT PAGE LOAD, before the person ever taps into that phase. Confirmed by
   // direct measurement: without this, the FIRST time a given crop is needed
@@ -1671,6 +1701,7 @@
     { through: 'saba-reveal', src: 'assets/BG-01-2400X1500PX.jpg' },
     { through: 'kana-reveal', src: 'assets/BG-02-2400X1500PX.jpg' },
   ];
+  preloadAllBackgrounds(BACKGROUND_GROUPS);
   const backgroundBoundaryIndices = BACKGROUND_GROUPS.map(
     (g) => frames.findIndex((f) => f.id === g.through)
   );
