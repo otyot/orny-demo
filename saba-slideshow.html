@@ -27,29 +27,28 @@
      Full-viewport, click-through, never touches #content's measured rect
      — deleting this div (and its one CSS rule) leaves the build running
      exactly as before, full-bleed white, same as it shipped originally.
-     The slow color drift (see BACKGROUND HUE MODULE in the JS) animates
-     this element's own `filter`, nothing else. */
+     Currently a TEST rig: no background-image is set here in CSS at all —
+     the BACKGROUND GROUPS MODULE (JS, near the other UI-layer modules)
+     swaps this element's background-image per chapter. See that module's
+     comment for how to reassign which frames use which image. */
   #bg-layer {
     position: fixed; inset: 0;
-    background-image: url('assets/lesson-background.png');
     background-size: cover;
     background-position: center;
     pointer-events: none;
     z-index: 0;
   }
-  /* THE GAME BOARD — Noam's spec: plain white, sharp corners (none of
-     that rounded-card look), spans the full height edge-to-edge
-     ("ceiling to floor"), inset only on left/right so the background
-     peeks through on both sides. This IS #stage itself (not a separate
-     image) so it can never drift out of alignment with the actual
-     content — see the "why not a PNG" note from the background-layer
-     design discussion. --board-inset is the one knob to widen/narrow it. */
+  /* #stage is the actual teaching-build render area. It used to also BE
+     "the game board" — plain white fill + drop shadow, sized/inset via
+     --board-inset. That's removed for now: the board is being tested as
+     art baked directly into each chapter's background image instead (see
+     #bg-layer above), so #stage stays fully transparent and content just
+     floats wherever that art's white space lands. --board-inset still
+     controls #stage's own horizontal insets/positioning below. */
   #stage {
     position: fixed;
     top: 0; bottom: 0;
     left: var(--board-inset); right: var(--board-inset);
-    background: var(--paper);
-    box-shadow: 0 0 60px 10px rgba(0, 0, 0, 0.4);
     z-index: 1;
     display: flex; flex-direction: column;
     user-select: none; -webkit-user-select: none;
@@ -1647,56 +1646,52 @@
   }
 
   // ---------------------------------------------------------------------
-  // BACKGROUND HUE MODULE — third resident, lives entirely against
-  // #bg-layer (see the CSS comment above #bg-layer). Same "Mac wake
-  // screen" idea Noam described: on each trigger frame, the background's
-  // colors drift to a new hue over 3s (ease-out) and then FREEZE there
-  // (Web Animations API's `fill: 'forwards'`, the JS equivalent of the
-  // CSS fill-mode used elsewhere in this file) until the next trigger —
-  // never a continuous loop, so it can't tug at a learner's attention
-  // mid-task. Triggers on the start of each letter's teaching cycle and
-  // on each chapter's word-reveal — exactly the 9 ids below, chosen with
-  // Noam. hueTotal only ever increases (never wraps via %), so the
-  // animation's start/end values stay numerically monotonic across the
-  // whole lesson — no visual "snap back" when crossing 360°, since the
-  // browser doesn't need to know it's cyclical, it's just a bigger number.
-  // Delete this whole block and #bg-layer stays exactly as it loads, no
-  // color shift, nothing else affected — same pattern as every other
-  // module here.
+  // BACKGROUND GROUPS MODULE — third resident, lives entirely against
+  // #bg-layer (see the CSS comment above #bg-layer). TEST RIG for chapter-
+  // scoped background art: each entry below names the LAST frame id in a
+  // stretch of the deck, paired with the image that whole stretch (from
+  // the previous entry's boundary, exclusive, through this one, inclusive)
+  // should show. Frames past the final listed boundary keep showing that
+  // last group's image — no entry needed for "the rest of the deck."
+  //
+  // Deliberately NOT keyed to "Sa/Ba" or "Ka/Na" by name — reassign any
+  // stretch to any image any time by editing this list, e.g. add a third
+  // entry once a third background exists, or move a boundary earlier/later
+  // by pointing `through` at a different frame id. Resolution is by frame
+  // INDEX (looked up once below), not by direction of travel, so it's
+  // correct whether the learner is tapping forward, going back, or a
+  // resize forces a re-render on the same frame.
+  //
+  // Delete this whole block and #bg-layer just shows nothing (transparent,
+  // background-color: var(--paper) on <body> shows through) — nothing
+  // else here depends on it.
   // ---------------------------------------------------------------------
   const bgLayerEl = document.getElementById('bg-layer');
-  const HUE_TRIGGER_IDS = new Set([
-    'sa-character', 'ba-character', 'ka-character',
-    'na-character', 'pa-character', 'ra-character',
-    'saba-reveal', 'kana-reveal', 'para-reveal',
-  ]);
-  const HUE_STEP_DEG = 28;
-  const HUE_PULSE_MS = 3000;
-  let hueTotal = 0;
-  // The existing resize listener further down (search "Re-render on
-  // resize") calls renderFrame() again on the SAME frame whenever the
-  // window resizes — harmless for captions (same text gets set again) but
-  // would double-pulse the hue on every resize if left unguarded. This
-  // dedupes against that: only pulse when we've actually landed on a
-  // trigger frame we weren't already sitting on.
-  let lastRenderedFrameId = null;
-  function pulseBackgroundHue() {
-    if (!bgLayerEl.animate) return; // defensive: every target browser has this
-    const from = hueTotal;
-    hueTotal += HUE_STEP_DEG;
-    bgLayerEl.animate(
-      [{ filter: `hue-rotate(${from}deg)` }, { filter: `hue-rotate(${hueTotal}deg)` }],
-      { duration: HUE_PULSE_MS, easing: 'ease-out', fill: 'forwards' }
-    );
+  const BACKGROUND_GROUPS = [
+    { through: 'saba-reveal', src: 'assets/BG-01-2400X1500PX.jpg' },
+    { through: 'kana-reveal', src: 'assets/BG-02-2400X1500PX.jpg' },
+  ];
+  const backgroundBoundaryIndices = BACKGROUND_GROUPS.map(
+    (g) => frames.findIndex((f) => f.id === g.through)
+  );
+  function backgroundSrcForIndex(idx) {
+    for (let i = 0; i < BACKGROUND_GROUPS.length; i++) {
+      if (backgroundBoundaryIndices[i] !== -1 && idx <= backgroundBoundaryIndices[i]) {
+        return BACKGROUND_GROUPS[i].src;
+      }
+    }
+    return BACKGROUND_GROUPS[BACKGROUND_GROUPS.length - 1].src;
   }
+  let lastAppliedBgSrc = null;
   {
     const previousOnFrameRendered = MOMENTS.onFrameRendered;
     MOMENTS.onFrameRendered = (frame) => {
       previousOnFrameRendered(frame);
-      if (HUE_TRIGGER_IDS.has(frame.id) && frame.id !== lastRenderedFrameId) {
-        pulseBackgroundHue();
+      const src = backgroundSrcForIndex(window.SabaDeck.index);
+      if (src !== lastAppliedBgSrc) {
+        bgLayerEl.style.backgroundImage = `url('${src}')`;
+        lastAppliedBgSrc = src;
       }
-      lastRenderedFrameId = frame.id;
     };
   }
 
