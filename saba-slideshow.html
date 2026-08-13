@@ -2908,7 +2908,7 @@
         const row = Math.floor(jf / cols);
         jumpEl.style.backgroundPosition = `-${col * cell}px -${row * cell}px`;
         jf = (jf + 1) % total;
-      }, 1000 / 5); // 5fps, matches the source video's real-time pacing
+      }, 1000 / 10); // 10fps — 2x the source video's pacing, per feedback that 5fps read as slow-motion and the loop dragged on too long
     }
   }
 </script>
