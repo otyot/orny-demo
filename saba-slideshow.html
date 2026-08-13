@@ -418,6 +418,27 @@
   #dragon-clap-video { display: none; }
   #dragon-mascot.dragon--playing #dragon-idle-img { display: none; }
   #dragon-mascot.dragon--playing #dragon-clap-video { display: block; }
+
+  /* ===================================================================
+     TEMPORARY TEST — dragon-jump sprite, rough placement only. Purely
+     to preview the AI-generated jump animation in real context on the
+     live deck. Does NOT touch #delight-bar/#dragon-mascot above — those
+     stay completely untouched. Safe to delete this rule + its markup
+     (#dragon-jump-test in the body) + its JS block any time.
+     Sized deliberately small (110px) since the real placement will be
+     ~80% smaller than the test renders we were reviewing at full size. */
+  #dragon-jump-test {
+    position: fixed;
+    left: 24px;
+    bottom: 24px;
+    width: 110px;
+    height: 110px;
+    background-image: url('assets/dragon-jump-sprite.png');
+    background-repeat: no-repeat;
+    background-size: 550px 440px; /* 5 cols x 4 rows of 110px cells */
+    pointer-events: none;
+    z-index: 5;
+  }
   .blank-line {
     display: inline-block;
     min-width: 3em;
@@ -466,6 +487,8 @@
       <video id="dragon-clap-video" src="assets/dragon-clap.mp4" muted playsinline preload="auto"></video>
     </div>
   </div>
+  <!-- TEMPORARY TEST — see comment on #dragon-jump-test in the CSS above. -->
+  <div id="dragon-jump-test"></div>
 </div>
 
 <script>
@@ -2867,6 +2890,27 @@
 
   // Boot
   goTo(0);
+
+  // ---------------------------------------------------------------------
+  // TEMPORARY TEST — dragon-jump sprite playback. Entirely self-contained,
+  // doesn't read or touch anything else in this file. Cycles the 20-frame
+  // sheet (5 cols x 4 rows, cell size matches #dragon-jump-test's CSS
+  // background-size/width) on a plain setInterval loop. Delete this block
+  // + the CSS rule + the <div id="dragon-jump-test"> markup to remove.
+  // ---------------------------------------------------------------------
+  {
+    const jumpEl = document.getElementById('dragon-jump-test');
+    if (jumpEl) {
+      const cols = 5, rows = 4, total = 20, cell = 110;
+      let jf = 0;
+      setInterval(() => {
+        const col = jf % cols;
+        const row = Math.floor(jf / cols);
+        jumpEl.style.backgroundPosition = `-${col * cell}px -${row * cell}px`;
+        jf = (jf + 1) % total;
+      }, 1000 / 5); // 5fps, matches the source video's real-time pacing
+    }
+  }
 </script>
 </body>
 </html>
