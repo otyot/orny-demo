@@ -318,10 +318,14 @@
      the right), top-right, matched pixel-for-pixel against the designer's
      Photoshop reference mockup. */
   #delight-bar {
+    /* Hidden — superseded by the new topbar.png game-board chrome below
+       (#board-topbar), which already covers the star/XP pill and 6-slot
+       progress stepper in the new visual design. Kept in the DOM/CSS
+       untouched rather than deleted, so it's a one-line revert if needed. */
+    display: none;
     position: fixed;
     top: 22px;
     right: calc(var(--board-inset) + 40px);
-    display: flex;
     align-items: flex-start;
     gap: 26px;
   }
@@ -364,20 +368,23 @@
     background: #3498db;
     border-color: #3498db;
   }
+  /* #xp-badge/#xp-value/#xp-star: same elements, same animateXpTo() logic
+     as before — just relocated out of the (now hidden) #delight-bar into
+     #board-topbar's own dark track area (see #board-xp below), so the
+     styling is redone for that context: no white pill chip (doesn't read
+     against the art), light text since it now sits on a dark background,
+     and the little redundant star icon hidden since topbar.png already
+     has its own gold star coin doing that job. */
   #xp-badge {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     font-weight: 700;
     font-size: 15px;
-    color: var(--ink);
-    background: #fff;
-    border: 1.5px solid var(--line);
-    border-radius: 999px;
-    padding: 5px 14px;
+    color: #eaf6ff;
   }
   #xp-badge .xp-label {
-    color: #3498db;
+    color: #8fd6ff;
   }
   #xp-badge.xp-badge--pulse {
     animation: xpPulse 0.4s ease-out;
@@ -386,11 +393,32 @@
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.18); }
   }
-  #xp-star {
-    width: 18px;
-    height: 18px;
-    object-fit: contain;
+  #xp-star { display: none; }
+  /* Positioned relative to #board-topbar (percentages measured directly
+     off topbar.png's own pixel geometry, 1596x160 native) — covers the
+     dark track area to the right of the star coin, left of the 6 slots. */
+  #board-xp {
+    position: absolute;
+    left: 7.5%; top: 0; width: 17%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
   }
+  /* The 6 per-letter completion slots, positioned over topbar.png's white
+     squares (measured: each ~78x79px within the 1596x160 art). Empty/
+     invisible until that letter's teaching cycle completes, at which
+     point JS sets the background-image to that letter's characterImg
+     (the same transparent mascot PNGs used elsewhere) and reveals it. */
+  .board-slot {
+    position: absolute;
+    top: 23.75%; height: 49.375%;
+    width: 4.887%;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    opacity: 0;
+    transform: scale(0.6);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  .board-slot--filled { opacity: 1; transform: scale(1); }
   /* Box aspect matches dragon-idle.png's native 480:522 exactly, so the
      idle art fills it edge-to-edge with zero letterboxing slack. The clap
      video (320:320) is measurably a different aspect/crop from the idle
@@ -420,24 +448,79 @@
   #dragon-mascot.dragon--playing #dragon-clap-video { display: block; }
 
   /* ===================================================================
-     TEMPORARY TEST — dragon-jump sprite, rough placement only. Purely
-     to preview the AI-generated jump animation in real context on the
-     live deck. Does NOT touch #delight-bar/#dragon-mascot above — those
-     stay completely untouched. Safe to delete this rule + its markup
-     (#dragon-jump-test in the body) + its JS block any time.
-     Sized deliberately small (110px) since the real placement will be
-     ~80% smaller than the test renders we were reviewing at full size. */
-  #dragon-jump-test {
+     GAME BOARD LAYOUT — Phase 1 (static placement, no behavior/logic yet;
+     see the layout preview this was pixel-measured from). Five new pieces,
+     all coordinates expressed as % of the 2400x1560 design canvas the
+     source PNGs were built at, so they scale together consistently with
+     #bg-layer's own background-size:cover. Assumes the viewport is close
+     to that canvas's 20:13 aspect ratio (true for the MacBook Air target
+     device fullscreen) — revisit this math if/when a genuinely responsive
+     layout is needed.
+
+     Stacking: #board-white-fill sits between #bg-layer and #stage (below
+     the teaching content, above the background) since the video/mascot
+     content that renders inside #stage needs to paint on top of it, not
+     under it. #board-frame/#board-topbar/#board-arrow-*/#board-dragon all
+     live inside #ui-overlay (already reserved for exactly this — see the
+     "LOCKED DESIGN DECISION" comment above), so they paint above the
+     teaching content, matching the "wood frame + chrome sits on top and
+     crops the content underneath" design. */
+  #board-white-fill {
     position: fixed;
-    left: 24px;
-    bottom: 24px;
-    width: 110px;
-    height: 110px;
-    background-image: url('assets/dragon-jump-sprite.png');
-    background-repeat: no-repeat;
-    background-size: 550px 440px; /* 5 cols x 4 rows of 110px cells */
+    inset: 0;
+    background-image: url('assets/white-fill.png');
+    background-size: cover;
+    background-position: center;
     pointer-events: none;
-    z-index: 5;
+    z-index: 0; /* same as #bg-layer; later in DOM order so it paints on top */
+  }
+  #board-frame {
+    position: fixed;
+    inset: 0;
+    background-image: url('assets/game-board.png');
+    background-size: cover;
+    background-position: center;
+    pointer-events: none;
+  }
+  #board-topbar {
+    /* Shrunk to 75% of its original size (1596x160 -> 1197x120 on the
+       2400x1560 canvas), re-centered, and pushed further up — still
+       overlapping the frame's top gem ornament at the previous 85%/50px
+       pass, so this one has a bigger safety margin (~90px gap to the
+       frame's top edge at y=235 instead of ~49px). */
+    position: fixed;
+    left: 25.0625%; top: 1.603%;
+    width: 49.875%; height: 7.692%;
+    background-image: url('assets/topbar.png');
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    pointer-events: none;
+  }
+  #board-arrow-l, #board-arrow-r {
+    position: fixed;
+    top: 43.397%;
+    width: 6.5%; height: 13.205%;
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    pointer-events: none;
+  }
+  #board-arrow-l { left: 2.625%; background-image: url('assets/arrow-L.png'); }
+  #board-arrow-r { left: 90.333%; background-image: url('assets/arrow-R.png'); }
+  #board-dragon {
+    position: fixed;
+    left: 75.833%; top: 61.538%;
+    width: 17.5%; height: 26.923%;
+    /* Static single idle frame for now — the jump animation is confirmed
+       working (see the dragon-frames test) but per product decision it
+       should only ever fire on completing a teaching cycle for a letter,
+       not play continuously. That trigger is Phase 2 wiring; for now this
+       is just the idle placeholder, correctly positioned/sized. */
+    background-image: url('assets/dragon-frames/f00.png');
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    pointer-events: none;
+    transform: scaleX(-1); /* mirrored to face the board — he's on the
+                               right side, art was drawn facing right */
   }
   .blank-line {
     display: inline-block;
@@ -449,6 +532,7 @@
 </head>
 <body>
 <div id="bg-layer"></div>
+<div id="board-white-fill"></div>
 <div id="stage">
   <div id="content"></div>
 </div>
@@ -463,32 +547,45 @@
 <div id="ui-overlay">
   <canvas id="confetti-canvas"></canvas>
   <div id="caption-bar"><span id="caption-text"></span></div>
-  <!-- DELIGHT BAR — top strip: per-letter progress dots, the dragon
-       mascot (idle/clap), and the XP counter. See the CSS comment above
-       #delight-bar and the JS "DELIGHT BAR MODULE" further down. -->
+  <!-- DELIGHT BAR — hidden, see the "display: none" comment on #delight-bar
+       in the CSS above. Superseded by the game-board chrome below. Its old
+       6 progress dots are gone (replaced by .board-slot below); #xp-badge
+       moved out into #board-topbar (see #board-xp) since it's still live —
+       same element, same animateXpTo() logic, just relocated. -->
   <div id="delight-bar">
     <div id="meter-group">
-      <div id="progress-track">
-        <div class="progress-notch"></div>
-        <div class="progress-notch"></div>
-        <div class="progress-notch"></div>
-        <div class="progress-notch"></div>
-        <div class="progress-notch"></div>
-        <div class="progress-notch"></div>
-      </div>
-      <div id="xp-badge">
-        <span id="xp-value">0</span>
-        <span class="xp-label">XP</span>
-        <img id="xp-star" src="assets/star.png" alt="">
-      </div>
+      <div id="progress-track"></div>
     </div>
     <div id="dragon-mascot">
       <img id="dragon-idle-img" src="assets/dragon-idle.png" alt="">
       <video id="dragon-clap-video" src="assets/dragon-clap.mp4" muted playsinline preload="auto"></video>
     </div>
   </div>
-  <!-- TEMPORARY TEST — see comment on #dragon-jump-test in the CSS above. -->
-  <div id="dragon-jump-test"></div>
+  <!-- GAME BOARD LAYOUT — Phase 1 static placement + Phase 2 success
+       trigger (see the CSS comment block above #board-white-fill). -->
+  <div id="board-frame"></div>
+  <div id="board-topbar">
+    <div id="board-xp">
+      <div id="xp-badge">
+        <span id="xp-value">0</span>
+        <span class="xp-label">XP</span>
+        <img id="xp-star" src="assets/star.png" alt="">
+      </div>
+    </div>
+    <!-- 6 completion slots, one per LETTER_ORDER entry (sa, ba, ka, na,
+         pa, ra) — left-to-right in the DOM/art, which reads correctly for
+         this RTL deck since the slots themselves aren't direction-coded,
+         just filled in teaching order. -->
+    <div class="board-slot" style="left: 25.000%;"></div>
+    <div class="board-slot" style="left: 32.206%;"></div>
+    <div class="board-slot" style="left: 39.474%;"></div>
+    <div class="board-slot" style="left: 46.679%;"></div>
+    <div class="board-slot" style="left: 53.822%;"></div>
+    <div class="board-slot" style="left: 60.965%;"></div>
+  </div>
+  <div id="board-arrow-l"></div>
+  <div id="board-arrow-r"></div>
+  <div id="board-dragon"></div>
 </div>
 
 <script>
@@ -1825,44 +1922,61 @@
 
   // ---------------------------------------------------------------------
   // DELIGHT BAR MODULE — fourth resident of #ui-overlay: the six per-
-  // letter progress dots, the dragon mascot, and the XP counter, all
-  // three driven off one shared trigger — MOMENTS.onCycleComplete, which
-  // the build already fires once per completed letter with that letter's
-  // id as its argument (see the 'yay' frame in buildCycleFrames). Fully
-  // self-contained like every other module here: delete this block (plus
-  // the #delight-bar markup/CSS) and onCycleComplete just goes back to
-  // being the no-op it's declared as, nothing else breaks.
+  // letter completion slots, the board dragon's jump animation, and the
+  // XP counter, all three driven off one shared trigger —
+  // MOMENTS.onCycleComplete, which the build already fires once per
+  // completed letter with that letter's id as its argument (see the 'yay'
+  // frame in buildCycleFrames). Fully self-contained like every other
+  // module here.
   //
   // LETTER_ORDER must match the teaching order in buildDeck() — it's how
-  // this module knows which of the 6 notches belongs to which letter.
+  // this module knows which of the 6 slots belongs to which letter.
   // ---------------------------------------------------------------------
   const LETTER_ORDER = ['sa', 'ba', 'ka', 'na', 'pa', 'ra'];
   const XP_PER_LETTER = 50;
-  const progressNotches = Array.from(document.querySelectorAll('.progress-notch'));
-  const dragonMascotEl = document.getElementById('dragon-mascot');
-  const dragonClapVideoEl = document.getElementById('dragon-clap-video');
+  const boardSlots = Array.from(document.querySelectorAll('.board-slot'));
   const xpBadgeEl = document.getElementById('xp-badge');
   const xpValueEl = document.getElementById('xp-value');
   let xpTotal = 0;
 
-  // Warm the clap clip's cache the same way the build's own
-  // preloadAllVideos does (see the render-engine setup) — a hidden
-  // <video preload="auto"> doesn't reliably fetch in Chrome, but a plain
-  // fetch() does. Kept separate from that function since this asset
-  // belongs to the UI layer, not the teaching build's frame data.
-  if (typeof fetch === 'function') {
-    fetch('assets/dragon-clap.mp4', { credentials: 'omit' }).catch(() => {});
-  }
+  // --- Board dragon: idle by default, jump animation on success only ---
+  // Same 20-frame set + preload approach confirmed in ui-layout-preview/
+  // preview.html (per-frame images rather than one sprite sheet stepped
+  // via background-position — that approach bled adjacent frames in under
+  // the kind of non-1:1 scaling this deck also does; see that file's
+  // comments for the full story). Preloaded once up front here, same as
+  // every other asset preload in this file, so the very first play on the
+  // very first "yay" screen is instant, not a fetch-on-demand stutter.
+  const boardDragonEl = document.getElementById('board-dragon');
+  const DRAGON_FRAME_COUNT = 20;
+  const DRAGON_IDLE_FRAME = 'assets/dragon-frames/f00.png';
+  const dragonFrameUrls = Array.from({ length: DRAGON_FRAME_COUNT }, (_, i) =>
+    `assets/dragon-frames/f${String(i).padStart(2, '0')}.png`);
+  let dragonFramesReady = false;
+  Promise.all(dragonFrameUrls.map(src => new Promise(resolve => {
+    const img = new Image();
+    img.onload = resolve;
+    img.onerror = resolve;
+    img.src = src;
+  }))).then(() => { dragonFramesReady = true; });
 
-  function playDragonClap() {
-    dragonMascotEl.classList.add('dragon--playing');
-    dragonClapVideoEl.currentTime = 0;
-    const playPromise = dragonClapVideoEl.play();
-    if (playPromise && typeof playPromise.catch === 'function') playPromise.catch(() => {});
+  let dragonPlaying = false;
+  function playDragonJump() {
+    if (!boardDragonEl || dragonPlaying) return;
+    dragonPlaying = true;
+    let f = 0;
+    const stepMs = 1000 / 10; // 10fps, matches the confirmed-good preview pacing
+    const timer = setInterval(() => {
+      f++;
+      if (f >= DRAGON_FRAME_COUNT) {
+        clearInterval(timer);
+        boardDragonEl.style.backgroundImage = `url('${DRAGON_IDLE_FRAME}')`;
+        dragonPlaying = false;
+        return;
+      }
+      boardDragonEl.style.backgroundImage = `url('${dragonFrameUrls[f]}')`;
+    }, stepMs);
   }
-  dragonClapVideoEl.addEventListener('ended', () => {
-    dragonMascotEl.classList.remove('dragon--playing');
-  });
 
   function animateXpTo(target) {
     const start = xpTotal;
@@ -1884,14 +1998,18 @@
   function celebrateLetter(letterId) {
     const index = LETTER_ORDER.indexOf(letterId);
     if (index === -1) return; // defensive — an id outside the 6 taught letters
-    const notch = progressNotches[index];
-    if (notch && !notch.classList.contains('progress-notch--filled')) {
-      notch.classList.add('progress-notch--filled');
-      const rect = notch.getBoundingClientRect();
+    const slot = boardSlots[index];
+    if (slot && !slot.classList.contains('board-slot--filled')) {
+      const letter = LETTERS[letterId];
+      if (letter && letter.characterImg) {
+        slot.style.backgroundImage = `url('${letter.characterImg}')`;
+      }
+      slot.classList.add('board-slot--filled');
+      const rect = slot.getBoundingClientRect();
       burstConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2, {
         count: 18, sizeMin: 3, sizeSpread: 3,
       });
-      playDragonClap();
+      playDragonJump();
       animateXpTo(xpTotal + XP_PER_LETTER);
     }
   }
@@ -2891,26 +3009,12 @@
   // Boot
   goTo(0);
 
-  // ---------------------------------------------------------------------
-  // TEMPORARY TEST — dragon-jump sprite playback. Entirely self-contained,
-  // doesn't read or touch anything else in this file. Cycles the 20-frame
-  // sheet (5 cols x 4 rows, cell size matches #dragon-jump-test's CSS
-  // background-size/width) on a plain setInterval loop. Delete this block
-  // + the CSS rule + the <div id="dragon-jump-test"> markup to remove.
-  // ---------------------------------------------------------------------
-  {
-    const jumpEl = document.getElementById('dragon-jump-test');
-    if (jumpEl) {
-      const cols = 5, rows = 4, total = 20, cell = 110;
-      let jf = 0;
-      setInterval(() => {
-        const col = jf % cols;
-        const row = Math.floor(jf / cols);
-        jumpEl.style.backgroundPosition = `-${col * cell}px -${row * cell}px`;
-        jf = (jf + 1) % total;
-      }, 1000 / 10); // 10fps — 2x the source video's pacing, per feedback that 5fps read as slow-motion and the loop dragged on too long
-    }
-  }
+  // Note: the old dragon-jump-test sprite-cycling block that used to live
+  // here has been removed — #board-dragon now shows a single static idle
+  // frame via CSS (see the CSS comment above #board-dragon). The 20-frame
+  // preload+cycle logic that was tested and confirmed working lives in
+  // ui-layout-preview/preview.html; it'll come back here once the actual
+  // "teaching cycle complete" trigger is wired (Phase 2).
 </script>
 </body>
 </html>
