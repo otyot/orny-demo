@@ -96,10 +96,10 @@
     user-select: none; -webkit-user-select: none;
   }
   /* #board-stage-overlay: decorative rock-platform + leaves art, drawn on
-     top of the frame itself (inside #board-root-front, after #board-dragon
-     in DOM so it can paint over the dragon's feet/platform seam if the
-     art calls for it). Purely cosmetic — a few stray pixels not lining up
-     with #bg-layer's own platform art in the corner is expected and fine
+     top of the frame itself (inside #board-root-front, BEFORE #board-dragon
+     in DOM so the dragon stays fully visible on top of it, not the other
+     way around). Purely cosmetic — a few stray pixels not lining up with
+     #bg-layer's own platform art in the corner is expected and fine
      (foliage forgives slop far better than a hard geometric edge does). */
   #board-stage-overlay {
     position: absolute;
@@ -666,8 +666,8 @@
   </div>
   <div id="board-arrow-l"></div>
   <div id="board-arrow-r"></div>
-  <div id="board-dragon"></div>
   <div id="board-stage-overlay"></div>
+  <div id="board-dragon"></div>
 </div>
 
 <script>
