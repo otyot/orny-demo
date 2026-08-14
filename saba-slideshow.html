@@ -460,8 +460,9 @@
      Stacking: #board-white-fill sits between #bg-layer and #stage (below
      the teaching content, above the background) since the video/mascot
      content that renders inside #stage needs to paint on top of it, not
-     under it. #board-frame/#board-topbar/#board-arrow-*/#board-dragon all
-     live inside #ui-overlay (already reserved for exactly this — see the
+     under it. #board-frame, #board-topbar, #board-arrow-l, #board-arrow-r
+     and #board-dragon all live inside #ui-overlay (already reserved for
+     exactly this — see the
      "LOCKED DESIGN DECISION" comment above), so they paint above the
      teaching content, matching the "wood frame + chrome sits on top and
      crops the content underneath" design. */
