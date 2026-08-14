@@ -510,18 +510,29 @@
     position: fixed;
     left: 75.833%; top: 61.538%;
     width: 17.5%; height: 26.923%;
-    /* Static single idle frame for now — the jump animation is confirmed
-       working (see the dragon-frames test) but per product decision it
-       should only ever fire on completing a teaching cycle for a letter,
-       not play continuously. That trigger is Phase 2 wiring; for now this
-       is just the idle placeholder, correctly positioned/sized. */
-    background-image: url('assets/dragon-frames/f00.png');
-    background-size: 100% 100%;
-    background-repeat: no-repeat;
     pointer-events: none;
     transform: scaleX(-1); /* mirrored to face the board — he's on the
                                right side, art was drawn facing right */
   }
+  /* All 20 jump frames (plus the idle frame, f00, reused as frame 0) are
+     real <img> elements stacked on top of each other, built once in JS —
+     see the DELIGHT BAR MODULE. Idle vs. jumping is just which one has
+     .dragon-frame--active (opacity 1); nothing about background-image
+     ever changes after page load. This replaced an earlier version that
+     swapped background-image per frame via setInterval — worked fine in
+     Safari but flickered in Chrome/Firefox (those engines re-decode/
+     repaint on every background-image URL change even when the image is
+     already cached; Safari apparently doesn't). Toggling which pre-
+     decoded, already-painted <img> is visible is compositor-only, so
+     there's nothing left to flicker regardless of browser. */
+  #board-dragon img {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    object-fit: contain;
+    opacity: 0;
+  }
+  #board-dragon img.dragon-frame--active { opacity: 1; }
   .blank-line {
     display: inline-block;
     min-width: 3em;
@@ -1817,9 +1828,15 @@
   // else here depends on it.
   // ---------------------------------------------------------------------
   const bgLayerEl = document.getElementById('bg-layer');
+  // Single universal background now — new-bg-01-2400x1560.png is the art
+  // that actually matches the new game-board/stage design (the round stone
+  // platform the dragon stands on, the crystal/lantern pedestals framing
+  // it), so it replaces the old two chapter-scoped BG-01/BG-02 images for
+  // the whole deck rather than sitting alongside them. The multi-entry
+  // chapter-scoping mechanism below still works exactly as before if a
+  // second/third background ever comes back — just add more entries.
   const BACKGROUND_GROUPS = [
-    { through: 'saba-reveal', src: 'assets/BG-01-2400X1500PX.jpg' },
-    { through: 'kana-reveal', src: 'assets/BG-02-2400X1500PX.jpg' },
+    { through: 'saba-reveal', src: 'assets/new-bg-01-2400x1560.jpg' },
   ];
   preloadAllBackgrounds(BACKGROUND_GROUPS);
   const backgroundBoundaryIndices = BACKGROUND_GROUPS.map(
@@ -1940,41 +1957,42 @@
   let xpTotal = 0;
 
   // --- Board dragon: idle by default, jump animation on success only ---
-  // Same 20-frame set + preload approach confirmed in ui-layout-preview/
-  // preview.html (per-frame images rather than one sprite sheet stepped
-  // via background-position — that approach bled adjacent frames in under
-  // the kind of non-1:1 scaling this deck also does; see that file's
-  // comments for the full story). Preloaded once up front here, same as
-  // every other asset preload in this file, so the very first play on the
-  // very first "yay" screen is instant, not a fetch-on-demand stutter.
+  // All 20 frames are built as real <img> elements once, up front, stacked
+  // on top of each other inside #board-dragon (see the CSS comment there
+  // for why: an earlier version swapped background-image per frame, which
+  // flickered in Chrome/Firefox but not Safari). Playback just toggles
+  // .dragon-frame--active between them — no image ever loads/decodes
+  // during animation, only once at page build time.
   const boardDragonEl = document.getElementById('board-dragon');
   const DRAGON_FRAME_COUNT = 20;
-  const DRAGON_IDLE_FRAME = 'assets/dragon-frames/f00.png';
-  const dragonFrameUrls = Array.from({ length: DRAGON_FRAME_COUNT }, (_, i) =>
-    `assets/dragon-frames/f${String(i).padStart(2, '0')}.png`);
-  let dragonFramesReady = false;
-  Promise.all(dragonFrameUrls.map(src => new Promise(resolve => {
-    const img = new Image();
-    img.onload = resolve;
-    img.onerror = resolve;
-    img.src = src;
-  }))).then(() => { dragonFramesReady = true; });
+  const dragonFrameEls = [];
+  if (boardDragonEl) {
+    for (let i = 0; i < DRAGON_FRAME_COUNT; i++) {
+      const img = document.createElement('img');
+      img.src = `assets/dragon-frames/f${String(i).padStart(2, '0')}.png`;
+      img.alt = '';
+      if (i === 0) img.classList.add('dragon-frame--active');
+      boardDragonEl.appendChild(img);
+      dragonFrameEls.push(img);
+    }
+  }
 
   let dragonPlaying = false;
   function playDragonJump() {
-    if (!boardDragonEl || dragonPlaying) return;
+    if (!dragonFrameEls.length || dragonPlaying) return;
     dragonPlaying = true;
     let f = 0;
     const stepMs = 1000 / 10; // 10fps, matches the confirmed-good preview pacing
     const timer = setInterval(() => {
+      dragonFrameEls[f].classList.remove('dragon-frame--active');
       f++;
       if (f >= DRAGON_FRAME_COUNT) {
         clearInterval(timer);
-        boardDragonEl.style.backgroundImage = `url('${DRAGON_IDLE_FRAME}')`;
+        dragonFrameEls[0].classList.add('dragon-frame--active'); // back to idle (f00)
         dragonPlaying = false;
         return;
       }
-      boardDragonEl.style.backgroundImage = `url('${dragonFrameUrls[f]}')`;
+      dragonFrameEls[f].classList.add('dragon-frame--active');
     }, stepMs);
   }
 
@@ -3009,12 +3027,9 @@
   // Boot
   goTo(0);
 
-  // Note: the old dragon-jump-test sprite-cycling block that used to live
-  // here has been removed — #board-dragon now shows a single static idle
-  // frame via CSS (see the CSS comment above #board-dragon). The 20-frame
-  // preload+cycle logic that was tested and confirmed working lives in
-  // ui-layout-preview/preview.html; it'll come back here once the actual
-  // "teaching cycle complete" trigger is wired (Phase 2).
+  // Note: the dragon's jump animation is wired up in the DELIGHT BAR
+  // MODULE above (playDragonJump(), triggered from celebrateLetter() on
+  // MOMENTS.onCycleComplete) — nothing left to do here.
 </script>
 </body>
 </html>
