@@ -31,12 +31,35 @@
      the BACKGROUND GROUPS MODULE (JS, near the other UI-layer modules)
      swaps this element's background-image per chapter. See that module's
      comment for how to reassign which frames use which image. */
-  #bg-layer {
-    position: fixed; inset: 0;
-    background-size: cover;
-    background-position: center;
+  /* #board-root-back / #board-root-front: the whole game-board system
+     (background, white-fill, frame, topbar, arrows, dragon) is a fixed
+     2400x1560 design canvas, uniformly scaled+centered to fit the actual
+     browser window via a JS-computed transform (see updateBoardScale()).
+     Two wrappers instead of one because bg-layer/white-fill need to sit
+     BELOW #stage's teaching content while frame/topbar/arrows/dragon sit
+     ABOVE it — both wrappers get the identical transform applied every
+     time, so everything inside either one stays perfectly locked together
+     regardless of window size. Previously each piece was positioned
+     independently (background-size:cover for the full-canvas layers,
+     plain viewport percentages for the small ones) — those two scaling
+     models diverge whenever the window's aspect ratio isn't exactly
+     2400:1560, which is what caused the topbar/frame/dragon to visibly
+     drift apart as the window was resized. */
+  #board-root-back, #board-root-front {
+    position: fixed;
+    left: 0; top: 0;
+    width: 2400px; height: 1560px;
+    transform-origin: top left;
     pointer-events: none;
-    z-index: 0;
+  }
+  #board-root-back { z-index: 0; }
+  #board-root-front { z-index: 26; } /* above #ui-overlay's z-index: 25 */
+  #bg-layer {
+    position: absolute;
+    left: 0; top: 0;
+    width: 2400px; height: 1560px;
+    background-size: 100% 100%;
+    pointer-events: none;
   }
   /* #stage is the actual teaching-build render area. It used to also BE
      "the game board" — plain white fill + drop shadow, sized/inset via
@@ -467,50 +490,49 @@
      teaching content, matching the "wood frame + chrome sits on top and
      crops the content underneath" design. */
   #board-white-fill {
-    position: fixed;
-    inset: 0;
+    position: absolute;
+    left: 0; top: 0;
+    width: 2400px; height: 1560px;
     background-image: url('assets/white-fill.png');
-    background-size: cover;
-    background-position: center;
+    background-size: 100% 100%;
     pointer-events: none;
-    z-index: 0; /* same as #bg-layer; later in DOM order so it paints on top */
   }
   #board-frame {
-    position: fixed;
-    inset: 0;
+    position: absolute;
+    left: 0; top: 0;
+    width: 2400px; height: 1560px;
     background-image: url('assets/game-board.png');
-    background-size: cover;
-    background-position: center;
+    background-size: 100% 100%;
     pointer-events: none;
   }
   #board-topbar {
-    /* Shrunk to 75% of its original size (1596x160 -> 1197x120 on the
-       2400x1560 canvas), re-centered, and pushed further up — still
-       overlapping the frame's top gem ornament at the previous 85%/50px
-       pass, so this one has a bigger safety margin (~90px gap to the
-       frame's top edge at y=235 instead of ~49px). */
-    position: fixed;
-    left: 25.0625%; top: 1.603%;
-    width: 49.875%; height: 7.692%;
+    /* Pixel coordinates on the 2400x1560 design canvas (same numbers as
+       before, just no longer expressed as viewport percentages — see the
+       #board-root-back/front comment above for why). Shrunk to 75% of its
+       original size (1596x160 -> 1197x120), re-centered, pushed up for
+       clearance from the frame's top gem ornament. */
+    position: absolute;
+    left: 602px; top: 25px;
+    width: 1197px; height: 120px;
     background-image: url('assets/topbar.png');
     background-size: 100% 100%;
     background-repeat: no-repeat;
     pointer-events: none;
   }
   #board-arrow-l, #board-arrow-r {
-    position: fixed;
-    top: 43.397%;
-    width: 6.5%; height: 13.205%;
+    position: absolute;
+    top: 677px;
+    width: 156px; height: 206px;
     background-size: 100% 100%;
     background-repeat: no-repeat;
     pointer-events: none;
   }
-  #board-arrow-l { left: 2.625%; background-image: url('assets/arrow-L.png'); }
-  #board-arrow-r { left: 90.333%; background-image: url('assets/arrow-R.png'); }
+  #board-arrow-l { left: 63px; background-image: url('assets/arrow-L.png'); }
+  #board-arrow-r { left: 2168px; background-image: url('assets/arrow-R.png'); }
   #board-dragon {
-    position: fixed;
-    left: 75.833%; top: 61.538%;
-    width: 17.5%; height: 26.923%;
+    position: absolute;
+    left: 1820px; top: 960px;
+    width: 420px; height: 420px;
     pointer-events: none;
     transform: scaleX(-1); /* mirrored to face the board — he's on the
                                right side, art was drawn facing right */
@@ -543,8 +565,10 @@
 </style>
 </head>
 <body>
-<div id="bg-layer"></div>
-<div id="board-white-fill"></div>
+<div id="board-root-back">
+  <div id="bg-layer"></div>
+  <div id="board-white-fill"></div>
+</div>
 <div id="stage">
   <div id="content"></div>
 </div>
@@ -573,8 +597,12 @@
       <video id="dragon-clap-video" src="assets/dragon-clap.mp4" muted playsinline preload="auto"></video>
     </div>
   </div>
-  <!-- GAME BOARD LAYOUT — Phase 1 static placement + Phase 2 success
-       trigger (see the CSS comment block above #board-white-fill). -->
+</div>
+<!-- GAME BOARD LAYOUT — Phase 1 static placement + Phase 2 success trigger
+     (see the #board-root-back/front CSS comment above #board-root-back for
+     the full explanation of why these live in their own rigidly-scaled
+     wrapper instead of #ui-overlay). -->
+<div id="board-root-front">
   <div id="board-frame"></div>
   <div id="board-topbar">
     <div id="board-xp">
@@ -3024,6 +3052,35 @@
   // Re-render on resize/orientation change so the stage box is re-fit to
   // the new screen size (e.g. rotating an iPad mid-lesson).
   window.addEventListener('resize', () => renderFrame(frames[index]));
+
+  // ---------------------------------------------------------------------
+  // BOARD SCALE MODULE — keeps #board-root-back/#board-root-front (the
+  // whole game-board system: background, white-fill, frame, topbar,
+  // arrows, dragon) locked together as one rigid unit at any window size.
+  // Both wrappers are a fixed 2400x1560 design canvas; this computes the
+  // largest uniform scale that fits the canvas inside the current window
+  // without cropping or distorting it, centers it, and applies the exact
+  // same transform to both wrappers — so nothing inside either one can
+  // ever drift relative to the other, regardless of how the browser
+  // window is sized. (Previously the full-canvas layers used
+  // background-size:cover while the smaller pieces used plain viewport
+  // percentages — those two scaling models only agree when the window's
+  // aspect ratio exactly matches 2400:1560, which is why the topbar/
+  // frame/dragon visibly drifted apart at other window sizes.)
+  // ---------------------------------------------------------------------
+  const boardRootBackEl = document.getElementById('board-root-back');
+  const boardRootFrontEl = document.getElementById('board-root-front');
+  function updateBoardScale() {
+    if (!boardRootBackEl || !boardRootFrontEl) return;
+    const scale = Math.min(window.innerWidth / 2400, window.innerHeight / 1560);
+    const offsetX = (window.innerWidth - 2400 * scale) / 2;
+    const offsetY = (window.innerHeight - 1560 * scale) / 2;
+    const transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+    boardRootBackEl.style.transform = transform;
+    boardRootFrontEl.style.transform = transform;
+  }
+  window.addEventListener('resize', updateBoardScale);
+  updateBoardScale();
 
   // Boot
   goTo(0);
