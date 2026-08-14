@@ -87,10 +87,17 @@
      same relative spot regardless of window size. Plain full-canvas
      rectangle, no shape-clipping: the new frame art has no notch, so its
      own opaque wood ring crops everything correctly on its own. */
+  /* #stage matches #board-white-fill's rect exactly (411,361 / 1555x921),
+     not the full 2400x1560 canvas. All the content-sizing budgets below
+     (STAGE_WIDTH_FRACTION etc.) measure #content's live rect at runtime,
+     so this is what makes "62% of the content area" mean 62% of the real
+     visible white board instead of 62% of the whole canvas (most of which
+     is hidden under the wood frame) — that mismatch was why teaching
+     content rendered small and off-center relative to the board. */
   #stage {
     position: absolute;
-    left: 0; top: 0;
-    width: 2400px; height: 1560px;
+    left: 411px; top: 361px;
+    width: 1555px; height: 921px;
     overflow: hidden;
     display: flex; flex-direction: column;
     user-select: none; -webkit-user-select: none;
