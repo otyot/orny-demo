@@ -119,19 +119,24 @@
     overflow: hidden;
   }
   .big-text {
-    font-size: clamp(32px, 7vw, 72px);
+    /* Fixed canvas px, not vw — vw is computed against the real viewport
+       and ignores #board-root-back's scale transform, so it used to
+       silently get shrunk a second time once #stage moved into the rigid
+       canvas (this rendered at ~72px in typical usage before that move,
+       hence the 150px canvas-px target here: 72 / ~0.48 typical scale). */
+    font-size: 150px;
     font-weight: 800;
     line-height: 1.15;
     margin: 0;
   }
   .label-text {
-    font-size: clamp(22px, 5vw, 40px);
+    font-size: 83px; /* was clamp(22px, 5vw, 40px) — see .big-text comment */
     font-weight: 600;
     margin: 0;
     color: var(--ink);
   }
   .sub-text {
-    font-size: clamp(18px, 3.5vw, 26px);
+    font-size: 54px; /* was clamp(18px, 3.5vw, 26px) — see .big-text comment */
     font-weight: 500;
     color: var(--muted);
     margin: 0;
@@ -255,7 +260,7 @@
     animation: readingPulse 0.8s ease-in-out 1;
   }
   .hebrew-text {
-    font-size: clamp(48px, 10vw, 110px);
+    font-size: 229px; /* was clamp(48px, 10vw, 110px) — see .big-text comment */
     font-weight: 700;
     direction: rtl;
     margin: 0 0 10px 0;
