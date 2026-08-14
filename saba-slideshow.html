@@ -32,26 +32,30 @@
      swaps this element's background-image per chapter. See that module's
      comment for how to reassign which frames use which image. */
   /* #board-root-back / #board-root-front: the game-board UI chrome
-     (white-fill, frame, topbar, arrows, dragon — NOT the background art,
-     see #bg-layer below) is a fixed 2400x1560 design canvas, uniformly
-     scaled+centered to fit the actual browser window via a JS-computed
-     transform (see updateBoardScale()). Two wrappers instead of one
-     because white-fill needs to sit BELOW #stage's teaching content while
-     frame/topbar/arrows/dragon sit ABOVE it — both wrappers get the
-     identical transform applied every time, so everything inside either
-     one stays perfectly locked together regardless of window size.
-     Previously each piece was positioned independently (background-size:
-     cover for the full-canvas layers, plain viewport percentages for the
-     small ones) — those two scaling models diverge whenever the window's
-     aspect ratio isn't exactly 2400:1560, which is what caused the
-     topbar/frame/dragon to visibly drift apart as the window was resized.
-     #bg-layer is deliberately kept OUT of this rigid canvas: it's pure
-     decorative background art with no other element that must align to
-     it pixel-for-pixel, so it stays on its own independent
-     always-fill-the-viewport layer (background-size:cover) instead of
-     being letterboxed along with the board. Only #board-white-fill needs
-     to travel with the rigid canvas, since it must stay pixel-locked to
-     #board-frame's hole shape. */
+     (white-fill, #stage's teaching content, frame, topbar, arrows, dragon
+     — NOT the background art, see #bg-layer below) is a fixed 2400x1560
+     design canvas, uniformly scaled+centered to fit the actual browser
+     window via a JS-computed transform (see updateBoardScale()). Two
+     wrappers instead of one because white-fill/#stage need to sit BELOW
+     the frame/topbar/arrows/dragon (so the wood visibly crops the content
+     underneath it) — both wrappers get the identical transform applied
+     every time, so everything inside either one stays perfectly locked
+     together regardless of window size. Previously each piece was
+     positioned independently (background-size:cover for the full-canvas
+     layers, plain viewport percentages for the small ones) — those two
+     scaling models diverge whenever the window's aspect ratio isn't
+     exactly 2400:1560, which is what caused the topbar/frame/dragon to
+     visibly drift apart as the window was resized, and separately caused
+     #stage's old viewport-relative box to run past the frame's actual
+     border entirely. #bg-layer is deliberately kept OUT of this rigid
+     canvas: it's pure decorative background art with no other element
+     that must align to it pixel-for-pixel, so it stays on its own
+     independent always-fill-the-viewport layer (background-size:cover)
+     instead of being letterboxed along with the board. #board-white-fill
+     and #stage both travel with the rigid canvas and share the exact same
+     mask shape (#stage's mask-image literally reuses white-fill's own
+     PNG), so nothing rendered in either one can ever cross #board-frame's
+     true hole boundary, notch included. */
   #board-root-back, #board-root-front {
     position: fixed;
     left: 0; top: 0;
@@ -74,18 +78,40 @@
     pointer-events: none;
     z-index: 0;
   }
-  /* #stage is the actual teaching-build render area. It used to also BE
-     "the game board" — plain white fill + drop shadow, sized/inset via
-     --board-inset. That's removed for now: the board is being tested as
-     art baked directly into each chapter's background image instead (see
-     #bg-layer above), so #stage stays fully transparent and content just
-     floats wherever that art's white space lands. --board-inset still
-     controls #stage's own horizontal insets/positioning below. */
+  /* #stage is the actual teaching-build render area. It now lives INSIDE
+     #board-root-back (after #board-white-fill), so it rides the exact same
+     rigid JS-computed transform as the frame/topbar/arrows/dragon — no
+     more drifting relative to the board on resize. Its box is set to the
+     frame's verified-clean interior rectangle (measured directly against
+     game-board.png's alpha channel: shrinking the old video-slot rect by a
+     40px margin on each side was the smallest margin with zero solid-wood
+     pixel crossings on any edge — see the corner-notch discussion this
+     size was born from). mask-image reuses #board-white-fill's own PNG
+     (already pixel-perfect against the frame's true hole, notch included)
+     so absolutely nothing rendered in here — text, images, or video — can
+     ever paint over the wood or spill into the exterior background; it
+     simply won't be visible past that boundary, same as the notch's grass
+     "showing through" is invisible where it should be. All the existing
+     per-frame layout code measures #content's live rect via
+     getBoundingClientRect() rather than assuming a fixed aspect ratio, so
+     it re-centers into this new box automatically — but the new box is
+     notably shorter/wider than the old nearly-full-height one, so
+     individual frame types (letters, reading pairs, video reveals, etc.)
+     may still need their own spacing/scale retouches after this; that's
+     expected follow-up, not a regression to chase down here. */
   #stage {
-    position: fixed;
-    top: 0; bottom: 0;
-    left: var(--board-inset); right: var(--board-inset);
-    z-index: 1;
+    position: absolute;
+    left: 393px; top: 359px;
+    width: 1589px; height: 901px;
+    overflow: hidden;
+    -webkit-mask-image: url('assets/white-fill.png');
+    mask-image: url('assets/white-fill.png');
+    -webkit-mask-size: 2400px 1560px;
+    mask-size: 2400px 1560px;
+    -webkit-mask-position: -393px -359px;
+    mask-position: -393px -359px;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
     display: flex; flex-direction: column;
     user-select: none; -webkit-user-select: none;
   }
@@ -581,9 +607,9 @@
 <div id="bg-layer"></div>
 <div id="board-root-back">
   <div id="board-white-fill"></div>
-</div>
-<div id="stage">
-  <div id="content"></div>
+  <div id="stage">
+    <div id="content"></div>
+  </div>
 </div>
 <div id="hud"></div>
 <div id="frame-id"></div>
