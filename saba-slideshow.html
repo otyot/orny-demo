@@ -2248,7 +2248,18 @@
   // the solo-stage fractions; pass smaller ones (see PAIR_*_FRACTION above)
   // when the stage has to share the row with another one.
   function applyStageSize(stage, dims, widthFraction, heightFraction) {
-    const rect = contentEl.getBoundingClientRect();
+    // clientWidth/clientHeight, NOT getBoundingClientRect(): #content lives
+    // inside #board-root-back, which carries the rigid canvas's CSS
+    // transform:scale(...). getBoundingClientRect() returns the REAL,
+    // already-scaled-down screen pixels, but stage.style.width/height below
+    // are interpreted as LOCAL (pre-transform, canvas-space) pixels by that
+    // same ancestor — using the real-px rect here silently squared the
+    // scale-down (real px in, then scaled down AGAIN by the transform),
+    // rendering every mascot/glyph at roughly half its intended size.
+    // clientWidth/height are unaffected by ancestor transforms (transforms
+    // are paint-time only, not layout), so they give the correct canvas-
+    // space budget instead.
+    const rect = { width: contentEl.clientWidth, height: contentEl.clientHeight };
     const maxW = rect.width * (widthFraction || STAGE_WIDTH_FRACTION);
     const maxH = rect.height * (heightFraction || STAGE_HEIGHT_FRACTION);
     const scale = Math.min(maxW / dims.w, maxH / dims.h);
@@ -2426,7 +2437,11 @@
   // content swap itself. If it's smooth, we have a working version.
   function buildReadingStage(saSpec, baSpec, active) {
     const stage = el('div', 'reading-stage');
-    const rect = contentEl.getBoundingClientRect();
+    // clientWidth/height, not getBoundingClientRect() — see the comment in
+    // applyStageSize above for why: this box's own style.width/height (and
+    // everything positioned inside it below) are canvas-space px, but
+    // getBoundingClientRect() returns already-transform-scaled real px.
+    const rect = { width: contentEl.clientWidth, height: contentEl.clientHeight };
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
     stage.style.width = `${Math.round(rect.width)}px`;
@@ -2753,7 +2768,8 @@
   };
   function buildSentenceStage(frame) {
     const stage = el('div', 'reading-stage');
-    const rect = contentEl.getBoundingClientRect();
+    // clientWidth/height, not getBoundingClientRect() — see applyStageSize.
+    const rect = { width: contentEl.clientWidth, height: contentEl.clientHeight };
     stage.style.width = `${Math.round(rect.width)}px`;
     stage.style.height = `${Math.round(rect.height)}px`;
 
@@ -2871,7 +2887,8 @@
   // just because the clip isn't dropped in yet.
   function buildFinalRevealStage(frame) {
     const stage = el('div', 'reading-stage');
-    const rect = contentEl.getBoundingClientRect();
+    // clientWidth/height, not getBoundingClientRect() — see applyStageSize.
+    const rect = { width: contentEl.clientWidth, height: contentEl.clientHeight };
     stage.style.width = `${Math.round(rect.width)}px`;
     stage.style.height = `${Math.round(rect.height)}px`;
     if (frame.video) {
