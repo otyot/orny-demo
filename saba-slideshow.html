@@ -522,12 +522,20 @@
      "LOCKED DESIGN DECISION" comment above), so they paint above the
      teaching content, matching the "wood frame + chrome sits on top and
      crops the content underneath" design. */
+  /* #board-white-fill: plain CSS shape, not an image. The new frame's
+     hole is a simple rounded rectangle (no notch), so there's no need for
+     a raster mask derived from the frame's alpha channel — that approach
+     also inherited the frame art's own soft bevel/shadow edges as a hazy
+     gradient border, which is exactly what this avoids. Rect measured
+     directly against game-board.png's opaque pixels (left/top/right/
+     bottom hole boundaries at safe mid-edge sample points); radius is a
+     visual estimate to be fine-tuned against a screenshot. */
   #board-white-fill {
     position: absolute;
-    left: 0; top: 0;
-    width: 2400px; height: 1560px;
-    background-image: url('assets/white-fill.png');
-    background-size: 100% 100%;
+    left: 441px; top: 391px;
+    width: 1495px; height: 861px;
+    background-color: #fff;
+    border-radius: 130px;
     pointer-events: none;
   }
   #board-frame {
