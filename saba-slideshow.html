@@ -101,6 +101,17 @@
     overflow: hidden;
     display: flex; flex-direction: column;
     user-select: none; -webkit-user-select: none;
+    /* #board-root-back/#board-root-front (this element's ancestors) are
+       pointer-events: none so the rigid design-canvas wrapper never blocks
+       clicks meant for real page chrome. #stage sits inside that wrapper
+       and needs clicks/taps itself (it's the whole click-to-advance
+       target — see the #stage click listener near the bottom of the
+       file), so it must explicitly opt back in here. Without this,
+       #stage can never receive a click or tap at all; on desktop this was
+       invisible because the keydown (arrow keys/space) listener still
+       advanced frames, but on touch devices with no keyboard, tapping did
+       nothing. */
+    pointer-events: auto;
   }
   /* #board-stage-overlay: decorative rock-platform + leaves art, drawn on
      top of the frame itself (inside #board-root-front, BEFORE #board-dragon
