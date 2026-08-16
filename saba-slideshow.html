@@ -506,10 +506,11 @@
      which is otherwise misleading since it never actually moves. */
   #board-progress-track {
     position: absolute;
-    /* 90% of the original 32.64%x68.75% box, centered within the same
-       footprint (was feeling too big/cumbersome at full size). */
-    left: 67.54%; top: 17.19%;
-    width: 29.38%; height: 61.88%;
+    /* Another 90% pass (now ~81% of the original 32.64%x68.75% box),
+       centered within the same footprint, to leave more breathing room
+       from the pill's own gold rim. */
+    left: 69.01%; top: 20.28%;
+    width: 26.44%; height: 55.69%;
     border-radius: 999px;
     overflow: hidden;
     /* Tiling a small crop of topbar.png's own bar texture looked blurry/
