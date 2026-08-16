@@ -2167,49 +2167,25 @@
     playPlaceholderTone(660, 90, 0, 0.16);
     playPlaceholderTone(988, 140, 70, 0.16);
   }
-  // XP-gain placeholder — one tick per point, chained rapidly (Noam's
-  // spec: +100 should sound like a ~2s coin-counter run, not 100 discrete
-  // beeps). Spacing shrinks as the count grows, floored so it never turns
-  // into an unintelligible buzz, and the whole chain is capped at 2s.
-  // Shared with animateXpTo's visual counter below (xpChainDurationMs) so
-  // the number and the sound always finish at the same moment — they used
-  // to run on two independently-hardcoded durations (number: fixed 600ms,
-  // sound: up to 2000ms), so for any award over ~30 points the number
-  // would freeze while the beep chain kept going for up to another 1.4s.
+  // XP-gain sound: a single flourish, once, regardless of how many points
+  // were added — no more per-point tick chain (Noam tried the coin-get.ogg
+  // tick and the layered-shimmer approach and didn't like it; dropped).
+  // xpChainDurationMs still paces the visual number-counting animation in
+  // animateXpTo below (bigger jumps count up over longer, up to 2s) — that
+  // part was never tied to the sound and stays as-is.
   function xpChainDurationMs(pointsAdded) {
-    // ~20ms/point (so +100 = ~2s, matching Noam's example exactly),
-    // capped at 2s total for very large jumps, floored so small jumps
-    // still feel like a chain and not one lonely blip.
     return Math.min(2000, Math.max(200, pointsAdded * 20));
-  }
-  function playPlaceholderXpBeepChain(pointsAdded, totalMs) {
-    if (!pointsAdded || pointsAdded <= 0) return;
-    const actualSpacing = totalMs / pointsAdded;
-    for (let i = 0; i < pointsAdded; i++) {
-      playXpTick(i * actualSpacing, 0.35);
-    }
   }
 
   // ---------------------------------------------------------------------
-  // REAL XP SOUNDS — Noam supplied two freesound.org files for this:
-  //  - coin-get.ogg: a single short (~0.29s) rising "blip" with a natural
-  //    fade in/out on both ends, so overlapping repeats at ~20ms spacing
-  //    (the tick chain above) layer into a dense coin-shower shimmer
-  //    instead of clicking — this is the per-tick sound.
-  //  - 8-bit-coin-or-power-up-fx: four quick dings + one longer rising
-  //    power-up swell, ~0.98s of real audio followed by ~0.95s of silence
-  //    (trimmed out here — deployed copy is assets/xp-flourish.mp3, cut at
-  //    the 1.02s mark measured via ffmpeg silencedetect). This is a single
-  //    multi-note phrase, not a clean loop unit, so it's used once as a
-  //    "ta-da" capstone right when the counter finishes rather than
-  //    chained like the tick.
-  // Both are decoded once via Web Audio (not `new Audio().play()` — that
-  // has too much per-call latency/jitter for ~20ms-spaced scheduling) and
-  // played through the same AudioContext as the placeholder tones above.
-  // playXpTick falls back to the old synth tone if the real file hasn't
-  // finished loading yet (e.g. very first XP gain right after page load).
+  // REAL XP SOUND — freesound.org "8-bit coin or power-up fx" (Noam's
+  // pick): four quick dings + one longer rising swell, ~0.98s of real
+  // audio followed by ~0.95s of silence (trimmed out — deployed copy is
+  // assets/xp-flourish.mp3, cut at the 1.02s mark via ffmpeg silencedetect).
+  // Decoded once via Web Audio (not `new Audio().play()`, which has more
+  // per-call latency) and played through the same AudioContext as the
+  // other placeholder tones in this file.
   // ---------------------------------------------------------------------
-  let xpTickBuffer = null;
   let xpFlourishBuffer = null;
   function loadXpSound(url, assign) {
     if (typeof fetch !== 'function') return; // defensive — some test/embedded contexts have no fetch at all
@@ -2221,25 +2197,11 @@
           return ctx ? ctx.decodeAudioData(buf) : null;
         })
         .then((decoded) => { if (decoded) assign(decoded); })
-        .catch(() => {}); // silent — falls back to the synth tone (tick) or is simply skipped (flourish)
-    } catch (e) { /* same — leave the synth-tone fallback in place */ }
+        .catch(() => {}); // silent — just skipped if it fails to load
+    } catch (e) { /* same */ }
   }
-  loadXpSound('assets/freesound-242857__plasterbrain__coin-get.ogg', (buf) => { xpTickBuffer = buf; });
   loadXpSound('assets/xp-flourish.mp3', (buf) => { xpFlourishBuffer = buf; });
 
-  function playXpTick(startOffsetMs, volume) {
-    const ctx = getPlaceholderAudioCtx();
-    if (!ctx) return;
-    if (!xpTickBuffer) { playPlaceholderTone(1400, 30, startOffsetMs, 0.07); return; }
-    const startAt = ctx.currentTime + (startOffsetMs || 0) / 1000;
-    const src = ctx.createBufferSource();
-    const gain = ctx.createGain();
-    src.buffer = xpTickBuffer;
-    gain.gain.value = volume != null ? volume : 0.35;
-    src.connect(gain);
-    gain.connect(ctx.destination);
-    src.start(startAt);
-  }
   function playXpFlourish(startOffsetMs, volume) {
     const ctx = getPlaceholderAudioCtx();
     if (!ctx || !xpFlourishBuffer) return; // bonus capstone — fine to skip silently if not loaded yet
@@ -2296,12 +2258,11 @@
   function animateXpTo(target) {
     const start = xpTotal;
     const startTime = performance.now();
-    const DURATION = xpChainDurationMs(target - start); // matches the beep chain exactly, see note above
+    const DURATION = xpChainDurationMs(target - start); // paces the visual count-up only, no sound tied to it anymore
     xpBadgeEl.classList.remove('xp-badge--pulse');
     void xpBadgeEl.offsetWidth; // restart the CSS pulse animation on repeat triggers
     xpBadgeEl.classList.add('xp-badge--pulse');
-    playPlaceholderXpBeepChain(target - start, DURATION);
-    if (target > start) playXpFlourish(DURATION); // "ta-da" capstone, timed to land right as the count finishes
+    if (target > start) playXpFlourish(DURATION); // single flourish, once, regardless of point count — timed to land right as the count finishes
     function step(now) {
       const t = Math.min(1, (now - startTime) / DURATION);
       const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
