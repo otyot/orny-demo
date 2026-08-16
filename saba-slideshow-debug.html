@@ -2184,8 +2184,8 @@
   // How big the on-screen "scene" box gets, as a fraction of the available
   // content area (which already excludes the caption bar). Turn these down
   // to shrink everything, up to grow it — this is the one place to tune it.
-  const STAGE_WIDTH_FRACTION = 0.85;
-  const STAGE_HEIGHT_FRACTION = 0.85;
+  const STAGE_WIDTH_FRACTION = 30.0;
+  const STAGE_HEIGHT_FRACTION = 30.0;
   // Reading-pair sizing budgets (see buildReadingStage below).
   // MASCOT rounds: each letter's box is computed from its own full-picture
   // crop window and scaled as large as the two STAGE budgets below allow —
@@ -2211,8 +2211,8 @@
   // likely want different values. Safe to tune freely; none of these can
   // reintroduce a reveal jump (nothing here depends on which state a slot
   // is in — there's only one state per letter in this round).
-  const READING_LETTER_STAGE_WIDTH_FRACTION = 0.9;  // both letters + gap, of content width
-  const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.8; // tallest letter, of content height
+  const READING_LETTER_STAGE_WIDTH_FRACTION = 0.45;  // both letters + gap, of content width
+  const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.40; // tallest letter, of content height
   const READING_LETTER_GAP_FRACTION = 0.06; // gap between the two letters' facing ink edges (not box edges — same "what the eye sees" idea as READING_CHAR_GAP_FRACTION)
   const READING_SILENT_LETTER_GAP_FRACTION = 0.02; // a silent companion letter (Aleph, He, ...) sits close to its host letter's left side, like normal in-word letter spacing in printed Hebrew — tighter than 0.035 (Noam: move it right, closer in, to about book-like spacing) but not as tight as 0.015 (that read as touching/merged). Originally tuned for Aleph specifically; reused as-is for every chapter's silent companion.
   // Noam overlaid a screenshot of the mascot characters/pictures on top of
