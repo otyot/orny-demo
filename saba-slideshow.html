@@ -2262,7 +2262,7 @@
     xpBadgeEl.classList.remove('xp-badge--pulse');
     void xpBadgeEl.offsetWidth; // restart the CSS pulse animation on repeat triggers
     xpBadgeEl.classList.add('xp-badge--pulse');
-    if (target > start) playXpFlourish(DURATION); // single flourish, once, regardless of point count — timed to land right as the count finishes
+    if (target > start) playXpFlourish(0); // single flourish, once, regardless of point count — starts together with the count-up, not after it
     function step(now) {
       const t = Math.min(1, (now - startTime) / DURATION);
       const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
