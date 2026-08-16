@@ -457,9 +457,9 @@
   #xp-badge {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
     font-weight: 700;
-    font-size: 15px;
+    font-size: 36px; /* as big as fits in #board-xp's niche (was 15px) */
     color: #eaf6ff;
   }
   #xp-badge .xp-label {
@@ -498,6 +498,31 @@
     transition: opacity 0.35s ease, transform 0.35s ease;
   }
   .board-slot--filled { opacity: 1; transform: scale(1); }
+  /* Lesson-progress pill — measured directly off topbar.png's own pixel
+     geometry (1596x160 native, same source as the slot measurement
+     above): interior track runs roughly x 1060-1533, y 22-132. Positioned
+     to fully cover the art's own baked-in (static, ~85%-full) green bar,
+     which is otherwise misleading since it never actually moves. */
+  #board-progress-track {
+    position: absolute;
+    left: 65.91%; top: 13.75%;
+    width: 32.64%; height: 68.75%;
+    border-radius: 999px;
+    overflow: hidden;
+    background: #4c8a8d;
+    pointer-events: none;
+  }
+  /* Anchored to the RIGHT edge and grown via width — fills right-to-left,
+     matching the deck's RTL flow (and the slots above). 0% width = fully
+     empty/dark; 100% = the whole pill green. See the PROGRESS BAR module
+     in the JS for what advances this. */
+  #board-progress-fill {
+    position: absolute;
+    top: 0; right: 0; height: 100%;
+    width: 0%;
+    background: linear-gradient(180deg, #a9d15c, #7ea93c);
+    transition: width 0.45s ease;
+  }
   /* Box aspect matches dragon-idle.png's native 480:522 exactly, so the
      idle art fills it edge-to-edge with zero letterboxing slack. The clap
      video (320:320) is measurably a different aspect/crop from the idle
@@ -589,8 +614,16 @@
     width: 156px; height: 206px;
     background-size: 100% 100%;
     background-repeat: no-repeat;
-    pointer-events: none;
+    /* Live nav controls now (see the click listeners near the bottom of
+       the JS) — RTL deck, so left = forward, right = backward. Was
+       decorative-only (pointer-events: none); #board-root-front itself is
+       still pointer-events: none, so these need their own opt-in, same
+       reasoning as #stage's fix above. */
+    pointer-events: auto;
+    cursor: pointer;
+    transition: transform 0.12s ease;
   }
+  #board-arrow-l:active, #board-arrow-r:active { transform: scale(0.92); }
   #board-arrow-l { left: 63px; background-image: url('assets/arrow-L.png'); }
   #board-arrow-r { left: 2168px; background-image: url('assets/arrow-R.png'); }
   #board-dragon {
@@ -677,15 +710,26 @@
       </div>
     </div>
     <!-- 6 completion slots, one per LETTER_ORDER entry (sa, ba, ka, na,
-         pa, ra) — left-to-right in the DOM/art, which reads correctly for
-         this RTL deck since the slots themselves aren't direction-coded,
-         just filled in teaching order. -->
-    <div class="board-slot" style="left: 25.000%;"></div>
-    <div class="board-slot" style="left: 32.206%;"></div>
-    <div class="board-slot" style="left: 39.474%;"></div>
-    <div class="board-slot" style="left: 46.679%;"></div>
-    <div class="board-slot" style="left: 53.822%;"></div>
+         pa, ra), filled in teaching order — RTL: Sa (first taught) lands
+         in the RIGHTMOST square, each next letter filling one square to
+         its left, matching how the rest of the deck reads. DOM order
+         still matches LETTER_ORDER (JS indexes them 0=sa..5=ra via
+         boardSlots — see celebrateLetter); only the visual left%
+         positions are mirrored here, so no JS changed. -->
     <div class="board-slot" style="left: 60.965%;"></div>
+    <div class="board-slot" style="left: 53.822%;"></div>
+    <div class="board-slot" style="left: 46.679%;"></div>
+    <div class="board-slot" style="left: 39.474%;"></div>
+    <div class="board-slot" style="left: 32.206%;"></div>
+    <div class="board-slot" style="left: 25.000%;"></div>
+    <!-- Small "lesson progress" pill, right of the slots — covers
+         topbar.png's own baked-in (static) green bar art with a live one.
+         Fills from the RIGHT edge leftward (see #board-progress-fill CSS)
+         to match the deck's RTL flow; resets to empty at the start of
+         each letter-pair chapter. See the PROGRESS BAR module in the JS. -->
+    <div id="board-progress-track">
+      <div id="board-progress-fill"></div>
+    </div>
   </div>
   <div id="board-arrow-l"></div>
   <div id="board-arrow-r"></div>
@@ -2050,6 +2094,66 @@
   const xpValueEl = document.getElementById('xp-value');
   let xpTotal = 0;
 
+  // ---------------------------------------------------------------------
+  // PLACEHOLDER SOUNDS — Noam wants slot-fill and XP-gain sounds, but is
+  // still picking the real files. Rather than wait, these synthesize
+  // simple tones with the Web Audio API — zero asset dependency, audibly
+  // proves the trigger/timing is right, and every call site below is a
+  // one-line swap to `new Audio('assets/whatever.mp3').play()` (the same
+  // pattern already used elsewhere in this file, e.g. the reveal frames'
+  // `frame.sound`) once real files exist. Delete this whole block then.
+  // ---------------------------------------------------------------------
+  let placeholderAudioCtx = null;
+  function getPlaceholderAudioCtx() {
+    if (!placeholderAudioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      placeholderAudioCtx = new Ctx();
+    }
+    if (placeholderAudioCtx.state === 'suspended') placeholderAudioCtx.resume();
+    return placeholderAudioCtx;
+  }
+  // One short tone. startOffset lets a caller schedule several in a row
+  // without drifting from setTimeout jitter.
+  function playPlaceholderTone(freq, durationMs, startOffsetMs, volume) {
+    const ctx = getPlaceholderAudioCtx();
+    if (!ctx) return;
+    const startAt = ctx.currentTime + (startOffsetMs || 0) / 1000;
+    const dur = durationMs / 1000;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, startAt);
+    gain.gain.setValueAtTime(0, startAt);
+    gain.gain.linearRampToValueAtTime(volume || 0.15, startAt + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.001, startAt + dur);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(startAt);
+    osc.stop(startAt + dur + 0.02);
+  }
+  // Slot-fill placeholder — a quick two-note "ding" (rising fifth).
+  function playPlaceholderSlotSound() {
+    playPlaceholderTone(660, 90, 0, 0.16);
+    playPlaceholderTone(988, 140, 70, 0.16);
+  }
+  // XP-gain placeholder — one tick per point, chained rapidly (Noam's
+  // spec: +100 should sound like a ~2s coin-counter run, not 100 discrete
+  // beeps). Spacing shrinks as the count grows, floored so it never turns
+  // into an unintelligible buzz, and the whole chain is capped at 2s.
+  function playPlaceholderXpBeepChain(pointsAdded) {
+    if (!pointsAdded || pointsAdded <= 0) return;
+    // ~20ms/point (so +100 = ~2s, matching Noam's example exactly),
+    // capped at 2s total for very large jumps, floored so small jumps
+    // still feel like a chain and not one lonely blip.
+    const spacing = 20;
+    const totalMs = Math.min(2000, Math.max(200, pointsAdded * spacing));
+    const actualSpacing = totalMs / pointsAdded;
+    for (let i = 0; i < pointsAdded; i++) {
+      playPlaceholderTone(1400, 30, i * actualSpacing, 0.07);
+    }
+  }
+
   // --- Board dragon: idle by default, jump animation on success only ---
   // All 20 frames are built as real <img> elements once, up front, stacked
   // on top of each other inside #board-dragon (see the CSS comment there
@@ -2097,6 +2201,7 @@
     xpBadgeEl.classList.remove('xp-badge--pulse');
     void xpBadgeEl.offsetWidth; // restart the CSS pulse animation on repeat triggers
     xpBadgeEl.classList.add('xp-badge--pulse');
+    playPlaceholderXpBeepChain(target - start);
     function step(now) {
       const t = Math.min(1, (now - startTime) / DURATION);
       const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
@@ -2121,6 +2226,7 @@
       burstConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2, {
         count: 18, sizeMin: 3, sizeSpread: 3,
       });
+      playPlaceholderSlotSound();
       playDragonJump();
       animateXpTo(xpTotal + XP_PER_LETTER);
     }
@@ -2130,6 +2236,100 @@
     MOMENTS.onCycleComplete = (letterId) => {
       previousOnCycleComplete(letterId);
       celebrateLetter(letterId);
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // PROGRESS BAR — the small pill next to the 6 slots. Per Noam: 5 notches
+  // per letter-pair chapter (teach first letter, teach second letter,
+  // "where's it hiding" segment, reading the characters, reading the real
+  // letters), resetting to empty at the start of each new chapter — a
+  // Duolingo-style per-lesson bar, not one bar for the whole deck.
+  //
+  // Driven entirely off frame ids via MOMENTS.onFrameRendered (already
+  // fired once per rendered frame, see renderFrame at the bottom of this
+  // file) — no changes to buildDeck/buildCycleFrames/buildReadingPhase
+  // needed, since every id checked below already exists exactly as-is.
+  // PROGRESS_CHAPTERS' order/idPrefix values mirror buildDeck()'s chapter
+  // list exactly; keep them in sync if a chapter's letters or idPrefix
+  // ever change.
+  // ---------------------------------------------------------------------
+  const PROGRESS_CHAPTERS = [
+    { first: 'sa', second: 'ba', idPrefix: '' },
+    { first: 'ka', second: 'na', idPrefix: 'kana-' },
+    { first: 'pa', second: 'ra', idPrefix: 'para-' },
+  ];
+  // Precomputed once, per frame INDEX (not reacted to live) — so stepping
+  // backward with the new nav arrows/keyboard is exactly as correct as
+  // stepping forward: whichever frame is on screen, the bar always shows
+  // that frame's true position, never an incremental "only goes up" guess.
+  // Boundary ids below are the exact frame ids buildCycleFrames/
+  // buildHidingRecall/buildReadingPhase already produce (see those
+  // functions above) — walked once against the built `frames` array.
+  const progressFractionByIndex = new Array(frames.length).fill(0);
+  {
+    let chapterIdx = -1;
+    let fraction = 0;
+    for (let i = 0; i < frames.length; i++) {
+      const id = frames[i] && frames[i].id;
+      const nextChapterIdx = PROGRESS_CHAPTERS.findIndex((c) => id === `${c.first}-character`);
+      if (nextChapterIdx !== -1) { chapterIdx = nextChapterIdx; fraction = 0; }
+      else if (chapterIdx !== -1) {
+        const c = PROGRESS_CHAPTERS[chapterIdx];
+        if (id === `${c.first}-yay`) fraction = 1 / 5;
+        else if (id === `${c.second}-yay`) fraction = 2 / 5;
+        else if (id === `${c.second}-hiding-answer`) fraction = 3 / 5;
+        else if (id === `${c.idPrefix}reading-kid-${c.second}`) fraction = 4 / 5;
+        else if (id === `${c.idPrefix}reading-letters-combine`) fraction = 5 / 5;
+      }
+      progressFractionByIndex[i] = fraction;
+    }
+  }
+  const progressTrackEl = document.getElementById('board-progress-track');
+  const progressFillEl = document.getElementById('board-progress-fill');
+  let progressFraction = 0;
+
+  function setProgressFraction(fraction, opts) {
+    const rising = fraction > progressFraction;
+    progressFraction = fraction;
+    const instant = opts && opts.instant;
+    if (progressFillEl) {
+      if (instant) {
+        progressFillEl.style.transition = 'none';
+        progressFillEl.style.width = `${fraction * 100}%`;
+        void progressFillEl.offsetWidth; // flush before re-enabling the transition
+        progressFillEl.style.transition = '';
+      } else {
+        progressFillEl.style.width = `${fraction * 100}%`;
+      }
+    }
+    // Small local burst right at the fill's leading edge (it fills
+    // right-to-left, so the edge sits at track-right minus the filled
+    // portion) — same confetti engine as the slots, scaled down to
+    // "noticeable but local", per Noam's Duolingo-style ask. Only for
+    // forward progress reached via normal playback, not backward scrubs
+    // or the instant re-sync jumps below.
+    if (rising && !instant && progressTrackEl) {
+      const rect = progressTrackEl.getBoundingClientRect();
+      const edgeX = rect.right - rect.width * fraction;
+      burstConfetti(edgeX, rect.top + rect.height / 2, {
+        count: 10, sizeMin: 2, sizeSpread: 2,
+      });
+    }
+  }
+  {
+    const previousOnFrameRendered = MOMENTS.onFrameRendered;
+    MOMENTS.onFrameRendered = (frame) => {
+      previousOnFrameRendered(frame);
+      const target = progressFractionByIndex[index];
+      if (target === undefined) return;
+      // Normal single-step advance during playback (including the exact
+      // notch-crossing tap) plays the burst; anything else — backward
+      // nav, a big jump, or first paint — just silently re-syncs to the
+      // correct value with no transition/burst, so scrubbing never looks
+      // like fake "progress".
+      const isSingleForwardStep = target > progressFraction && target - progressFraction <= 1 / 5 + 1e-9;
+      setProgressFraction(target, { instant: !isSingleForwardStep });
     };
   }
 
@@ -3125,6 +3325,15 @@
     e.stopPropagation();
     prev();
   });
+  // Left/right nav arrows (visual triangles on #board-root-front, painted
+  // over the board — see #board-arrow-l/#board-arrow-r CSS). RTL deck: the
+  // right arrow goes backward, the left arrow goes forward, per Noam.
+  // stopPropagation so a tap on an arrow doesn't also fall through to
+  // #stage's own click-anywhere-to-advance listener above and double-fire.
+  const boardArrowL = document.getElementById('board-arrow-l');
+  const boardArrowR = document.getElementById('board-arrow-r');
+  if (boardArrowL) boardArrowL.addEventListener('click', (e) => { e.stopPropagation(); next(); });
+  if (boardArrowR) boardArrowR.addEventListener('click', (e) => { e.stopPropagation(); prev(); });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
     else if (e.key === 'ArrowLeft' || e.key === 'Backspace') { e.preventDefault(); prev(); }
