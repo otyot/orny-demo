@@ -231,6 +231,14 @@
      to). */
   .reading-stage {
     position: relative;
+    /* TEMP DEBUG MARKER — same idea as .composite-stage's magenta outline,
+       but cyan, so it's visually distinct. Traces the reading-stage box
+       controlled by the READING_STAGE and READING_LETTER_STAGE fraction
+       constants below (used for both the mascot-pair round and the
+       real-letters round — same class, different fraction constants).
+       Debug-file only. */
+    outline: 8px solid #00ffff;
+    outline-offset: 4px;
   }
   .reading-box {
     position: absolute; /* left/top/width/height set inline by JS */
@@ -2168,7 +2176,7 @@
     dbg.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#ff0;color:#000;font:16px monospace;padding:6px 10px;text-align:center;';
     document.body.appendChild(dbg);
     const update = () => {
-      dbg.textContent = `DEBUG FILE — STAGE_WIDTH_FRACTION=${STAGE_WIDTH_FRACTION}  STAGE_HEIGHT_FRACTION=${STAGE_HEIGHT_FRACTION}  (magenta box = the element these control)`;
+      dbg.textContent = `DEBUG — mascot/picture (magenta) STAGE_W/H=${STAGE_WIDTH_FRACTION}/${STAGE_HEIGHT_FRACTION}  |  reading-pair (cyan) READING_STAGE_W/H=${READING_STAGE_WIDTH_FRACTION}/${READING_STAGE_HEIGHT_FRACTION}  |  LETTERS round (cyan) READING_LETTER_STAGE_W/H=${READING_LETTER_STAGE_WIDTH_FRACTION}/${READING_LETTER_STAGE_HEIGHT_FRACTION}`;
     };
     update();
   });
@@ -2176,8 +2184,8 @@
   // How big the on-screen "scene" box gets, as a fraction of the available
   // content area (which already excludes the caption bar). Turn these down
   // to shrink everything, up to grow it — this is the one place to tune it.
-  const STAGE_WIDTH_FRACTION = 2.0;
-  const STAGE_HEIGHT_FRACTION = 2.0;
+  const STAGE_WIDTH_FRACTION = 0.85;
+  const STAGE_HEIGHT_FRACTION = 0.85;
   // Reading-pair sizing budgets (see buildReadingStage below).
   // MASCOT rounds: each letter's box is computed from its own full-picture
   // crop window and scaled as large as the two STAGE budgets below allow —
@@ -2203,8 +2211,8 @@
   // likely want different values. Safe to tune freely; none of these can
   // reintroduce a reveal jump (nothing here depends on which state a slot
   // is in — there's only one state per letter in this round).
-  const READING_LETTER_STAGE_WIDTH_FRACTION = 0.45;  // both letters + gap, of content width
-  const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.40; // tallest letter, of content height
+  const READING_LETTER_STAGE_WIDTH_FRACTION = 0.9;  // both letters + gap, of content width
+  const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.8; // tallest letter, of content height
   const READING_LETTER_GAP_FRACTION = 0.06; // gap between the two letters' facing ink edges (not box edges — same "what the eye sees" idea as READING_CHAR_GAP_FRACTION)
   const READING_SILENT_LETTER_GAP_FRACTION = 0.02; // a silent companion letter (Aleph, He, ...) sits close to its host letter's left side, like normal in-word letter spacing in printed Hebrew — tighter than 0.035 (Noam: move it right, closer in, to about book-like spacing) but not as tight as 0.015 (that read as touching/merged). Originally tuned for Aleph specifically; reused as-is for every chapter's silent companion.
   // Noam overlaid a screenshot of the mascot characters/pictures on top of
