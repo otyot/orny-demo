@@ -453,17 +453,16 @@
      styling is redone for that context: no white pill chip (doesn't read
      against the art), light text since it now sits on a dark background,
      and the little redundant star icon hidden since topbar.png already
-     has its own gold star coin doing that job. */
+     has its own gold star coin doing that job. The "XP" text label was
+     removed (it wasn't reading as intended) — just the number now, sized
+     up to use the freed-up space in #board-xp's niche. */
   #xp-badge {
     display: flex;
     align-items: center;
     gap: 8px;
     font-weight: 700;
-    font-size: 36px; /* as big as fits in #board-xp's niche (was 15px) */
+    font-size: 52px; /* bumped further now that the "XP" label is gone (was 36px) */
     color: #eaf6ff;
-  }
-  #xp-badge .xp-label {
-    color: #8fd6ff;
   }
   #xp-badge.xp-badge--pulse {
     animation: xpPulse 0.4s ease-out;
@@ -509,7 +508,11 @@
     width: 32.64%; height: 68.75%;
     border-radius: 999px;
     overflow: hidden;
-    background: #4c8a8d;
+    /* Tiled crop of topbar.png's own (empty-side) bar texture, instead of
+       a flat color — matches the original baked-in art's look/gloss. */
+    background-image: url('assets/progress-track-tile.png');
+    background-repeat: repeat-x;
+    background-size: auto 100%;
     pointer-events: none;
   }
   /* Anchored to the RIGHT edge and grown via width — fills right-to-left,
@@ -520,7 +523,12 @@
     position: absolute;
     top: 0; right: 0; height: 100%;
     width: 0%;
-    background: linear-gradient(180deg, #a9d15c, #7ea93c);
+    /* Tiled crop of topbar.png's own (filled-side) bar texture, instead of
+       a flat gradient — matches the original baked-in art's look/gloss. */
+    background-image: url('assets/progress-fill-tile.png');
+    background-repeat: repeat-x;
+    background-position: right center;
+    background-size: auto 100%;
     transition: width 0.45s ease;
   }
   /* Box aspect matches dragon-idle.png's native 480:522 exactly, so the
@@ -705,7 +713,6 @@
     <div id="board-xp">
       <div id="xp-badge">
         <span id="xp-value">0</span>
-        <span class="xp-label">XP</span>
         <img id="xp-star" src="assets/star.png" alt="">
       </div>
     </div>
@@ -896,6 +903,7 @@
       id: 'sa',
       name: 'Sa',
       characterImg: ASSETS.sa_character,
+      slotImg: 'assets/slot-sa.png', // dedicated tight-crop art for the topbar slot (see celebrateLetter) — characterImg has too much built-in padding to read at that tiny size
       pictureImg: ASSETS.sal_picture,
       pictureName: 'Sal',
       letterImg: ASSETS.sa_letter_img,
@@ -908,6 +916,7 @@
       id: 'ba',
       name: 'Ba',
       characterImg: ASSETS.ba_character,
+      slotImg: 'assets/slot-ba.png',
       pictureImg: ASSETS.bakbuk_picture,
       pictureName: 'Bakbuk',
       letterImg: ASSETS.ba_letter_img,
@@ -951,6 +960,7 @@
       id: 'ka',
       name: 'Ka',
       characterImg: ASSETS.ka_character,
+      slotImg: 'assets/slot-ka.png',
       pictureImg: ASSETS.karnaf_picture,
       pictureName: 'Karnaf',
       letterImg: ASSETS.ka_letter_img,
@@ -964,6 +974,7 @@
       id: 'na',
       name: 'Na',
       characterImg: ASSETS.na_character,
+      slotImg: 'assets/slot-na.png',
       pictureImg: ASSETS.nahash_picture,
       pictureName: 'Nachash',
       letterImg: ASSETS.na_letter_img,
@@ -993,6 +1004,7 @@
       id: 'pa',
       name: 'Pa',
       characterImg: ASSETS.pa_character,
+      slotImg: 'assets/slot-pa.png',
       pictureImg: ASSETS.parpar_picture,
       pictureName: 'Parpar',
       letterImg: ASSETS.pa_letter_img,
@@ -1006,6 +1018,7 @@
       id: 'ra',
       name: 'Ra',
       characterImg: ASSETS.ra_character,
+      slotImg: 'assets/slot-ra.png',
       pictureImg: ASSETS.rakevet_picture,
       pictureName: 'Rakevet',
       letterImg: ASSETS.ra_letter_img,
@@ -1773,6 +1786,15 @@
         }
       });
     }
+    if (f.kind === 'yay' && f.momentArg && LETTERS[f.momentArg]) {
+      // The topbar slot image isn't shown IN any frame (it's set directly
+      // on the .board-slot element the moment this 'yay' frame's
+      // onCycleComplete fires — see celebrateLetter) so it'd never
+      // otherwise enter the normal preload sweep below; add it here so it
+      // doesn't pop in late the first time a slot fills.
+      const l = LETTERS[f.momentArg];
+      srcs.push(l.slotImg || l.characterImg);
+    }
     if (f.kind === 'sentence-reading') {
       // All 6 taught letters + all 3 silent companions used in the final
       // sentence row (see SENTENCE_LAYOUT, defined later near
@@ -2141,13 +2163,19 @@
   // spec: +100 should sound like a ~2s coin-counter run, not 100 discrete
   // beeps). Spacing shrinks as the count grows, floored so it never turns
   // into an unintelligible buzz, and the whole chain is capped at 2s.
-  function playPlaceholderXpBeepChain(pointsAdded) {
-    if (!pointsAdded || pointsAdded <= 0) return;
+  // Shared with animateXpTo's visual counter below (xpChainDurationMs) so
+  // the number and the sound always finish at the same moment — they used
+  // to run on two independently-hardcoded durations (number: fixed 600ms,
+  // sound: up to 2000ms), so for any award over ~30 points the number
+  // would freeze while the beep chain kept going for up to another 1.4s.
+  function xpChainDurationMs(pointsAdded) {
     // ~20ms/point (so +100 = ~2s, matching Noam's example exactly),
     // capped at 2s total for very large jumps, floored so small jumps
     // still feel like a chain and not one lonely blip.
-    const spacing = 20;
-    const totalMs = Math.min(2000, Math.max(200, pointsAdded * spacing));
+    return Math.min(2000, Math.max(200, pointsAdded * 20));
+  }
+  function playPlaceholderXpBeepChain(pointsAdded, totalMs) {
+    if (!pointsAdded || pointsAdded <= 0) return;
     const actualSpacing = totalMs / pointsAdded;
     for (let i = 0; i < pointsAdded; i++) {
       playPlaceholderTone(1400, 30, i * actualSpacing, 0.07);
@@ -2197,11 +2225,11 @@
   function animateXpTo(target) {
     const start = xpTotal;
     const startTime = performance.now();
-    const DURATION = 600;
+    const DURATION = xpChainDurationMs(target - start); // matches the beep chain exactly, see note above
     xpBadgeEl.classList.remove('xp-badge--pulse');
     void xpBadgeEl.offsetWidth; // restart the CSS pulse animation on repeat triggers
     xpBadgeEl.classList.add('xp-badge--pulse');
-    playPlaceholderXpBeepChain(target - start);
+    playPlaceholderXpBeepChain(target - start, DURATION);
     function step(now) {
       const t = Math.min(1, (now - startTime) / DURATION);
       const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
@@ -2218,8 +2246,13 @@
     const slot = boardSlots[index];
     if (slot && !slot.classList.contains('board-slot--filled')) {
       const letter = LETTERS[letterId];
-      if (letter && letter.characterImg) {
-        slot.style.backgroundImage = `url('${letter.characterImg}')`;
+      // Dedicated tight-crop slotImg if it's there; falls back to the
+      // full-canvas characterImg (padded, reads small) if not — so a
+      // letter never renders blank in its slot just because its slotImg
+      // hasn't been supplied yet.
+      const slotSrc = letter && (letter.slotImg || letter.characterImg);
+      if (slotSrc) {
+        slot.style.backgroundImage = `url('${slotSrc}')`;
       }
       slot.classList.add('board-slot--filled');
       const rect = slot.getBoundingClientRect();
