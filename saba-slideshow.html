@@ -461,7 +461,7 @@
     align-items: center;
     gap: 8px;
     font-weight: 700;
-    font-size: 52px; /* bumped further now that the "XP" label is gone (was 36px) */
+    font-size: 44px; /* slightly back down from 52px — felt crowded against the star coin */
     color: #eaf6ff;
   }
   #xp-badge.xp-badge--pulse {
@@ -479,7 +479,7 @@
     position: absolute;
     left: 7.5%; top: 0; width: 17%; height: 100%;
     display: flex; align-items: center; justify-content: flex-start;
-    padding-left: 14px; /* clears the star coin, keeps the number inside this channel instead of centering into the next element */
+    padding-left: 24px; /* clears the star coin, keeps the number inside this channel instead of centering into the next element */
     box-sizing: border-box;
   }
   /* The 6 per-letter completion slots, positioned over topbar.png's white
@@ -506,8 +506,10 @@
      which is otherwise misleading since it never actually moves. */
   #board-progress-track {
     position: absolute;
-    left: 65.91%; top: 13.75%;
-    width: 32.64%; height: 68.75%;
+    /* 90% of the original 32.64%x68.75% box, centered within the same
+       footprint (was feeling too big/cumbersome at full size). */
+    left: 67.54%; top: 17.19%;
+    width: 29.38%; height: 61.88%;
     border-radius: 999px;
     overflow: hidden;
     /* Tiling a small crop of topbar.png's own bar texture looked blurry/
