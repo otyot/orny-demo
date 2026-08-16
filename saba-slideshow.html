@@ -506,11 +506,13 @@
      which is otherwise misleading since it never actually moves. */
   #board-progress-track {
     position: absolute;
-    /* Another 90% pass (now ~81% of the original 32.64%x68.75% box),
-       centered within the same footprint, to leave more breathing room
-       from the pill's own gold rim. */
-    left: 69.01%; top: 20.28%;
-    width: 26.44%; height: 55.69%;
+    /* Sized directly off Noam's mockup: measured the white-rect he drew
+       against the (unpainted, still-visible) gold rim in that same image
+       and translated the ratio onto the original 32.64%x68.75% box —
+       ~89% of the rim's width, ~79% of its height — centered within the
+       same footprint as before. */
+    left: 67.73%; top: 20.88%;
+    width: 29.00%; height: 54.50%;
     border-radius: 999px;
     overflow: hidden;
     /* Tiling a small crop of topbar.png's own bar texture looked blurry/
