@@ -1,0 +1,3164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Saba Teaching Slideshow</title>
+<style>
+  :root {
+    --caption-h: 56px;
+    --ink: #1c1c1e;
+    --paper: #ffffff;
+    --muted: #8a8a8e;
+    --line: #e2e2e5;
+    --board-inset: 14%; /* how much background peeks through on left/right */
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--paper); color: var(--ink);
+    touch-action: manipulation;
+  }
+  /* BACKGROUND LAYER — bottommost of the three layers (background under
+     the build under the UI overlay). Lives outside #stage entirely, first
+     child of <body> so it paints behind everything else by DOM order
+     alone (same trick #ui-overlay uses in reverse to always paint on top).
+     Full-viewport, click-through, never touches #content's measured rect
+     — deleting this div (and its one CSS rule) leaves the build running
+     exactly as before, full-bleed white, same as it shipped originally.
+     Currently a TEST rig: no background-image is set here in CSS at all —
+     the BACKGROUND GROUPS MODULE (JS, near the other UI-layer modules)
+     swaps this element's background-image per chapter. See that module's
+     comment for how to reassign which frames use which image. */
+  /* #board-root-back / #board-root-front: the game-board UI chrome
+     (white-fill, #stage's teaching content, frame, topbar, arrows, dragon,
+     the decorative stage-platform overlay — NOT the background art, see
+     #bg-layer below) is a fixed 2400x1560 design canvas, uniformly
+     scaled+centered to fit the actual browser window via a JS-computed
+     transform (see updateBoardScale()). Two wrappers instead of one
+     because white-fill/#stage need to sit BELOW frame/topbar/arrows/
+     dragon/overlay (so the wood visibly crops the content underneath it)
+     — both wrappers get the identical transform applied every time, so
+     everything inside either one stays perfectly locked together
+     regardless of window size. Previously each piece was positioned
+     independently (background-size:cover for the full-canvas layers,
+     plain viewport percentages for the small ones) — those two scaling
+     models diverge whenever the window's aspect ratio isn't exactly
+     2400:1560, which is what caused the topbar/frame/dragon to visibly
+     drift apart as the window was resized, and separately caused
+     #stage's old viewport-relative box to run out of sync with the
+     frame. #bg-layer is deliberately kept OUT of this rigid canvas: it's
+     pure decorative background art with no other element that must
+     align to it pixel-for-pixel, so it stays on its own independent
+     always-fill-the-viewport layer (background-size:cover) instead of
+     being letterboxed along with the board. #board-white-fill and
+     #stage are both plain, full-canvas rectangles — the new game-board
+     art has a complete, uncut wood ring (no corner notch), so the frame
+     itself now crops everything correctly on every side without any
+     shape-clipping needed here. #board-stage-overlay (the rock
+     platform + leaves art) sits in #board-root-front, above the frame,
+     as the final decorative touch. */
+  #board-root-back, #board-root-front {
+    position: fixed;
+    left: 0; top: 0;
+    width: 2400px; height: 1560px;
+    transform-origin: top left;
+    pointer-events: none;
+  }
+  #board-root-back { z-index: 0; }
+  #board-root-front { z-index: 26; } /* above #ui-overlay's z-index: 25 */
+  /* #bg-layer: independent, always-fills-the-viewport background art —
+     see the #board-root-back/front comment above for why this one stays
+     OUTSIDE the rigid game-board canvas. Sits at z-index:0 same as
+     #board-root-back but earlier in DOM order, so #board-white-fill still
+     paints above it. */
+  #bg-layer {
+    position: fixed;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    pointer-events: none;
+    z-index: 0;
+  }
+  /* #stage now lives INSIDE #board-root-back (after #board-white-fill), so
+     it rides the exact same rigid JS-computed transform as the frame,
+     topbar, arrows, dragon and stage-platform overlay — always in the
+     same relative spot regardless of window size. Plain full-canvas
+     rectangle, no shape-clipping: the new frame art has no notch, so its
+     own opaque wood ring crops everything correctly on its own. */
+  /* #stage matches #board-white-fill's rect exactly (411,361 / 1555x921),
+     not the full 2400x1560 canvas. All the content-sizing budgets below
+     (STAGE_WIDTH_FRACTION etc.) measure #content's live rect at runtime,
+     so this is what makes "62% of the content area" mean 62% of the real
+     visible white board instead of 62% of the whole canvas (most of which
+     is hidden under the wood frame) — that mismatch was why teaching
+     content rendered small and off-center relative to the board. */
+  #stage {
+    position: absolute;
+    left: 411px; top: 361px;
+    width: 1555px; height: 921px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    user-select: none; -webkit-user-select: none;
+  }
+  /* #board-stage-overlay: decorative rock-platform + leaves art, drawn on
+     top of the frame itself (inside #board-root-front, BEFORE #board-dragon
+     in DOM so the dragon stays fully visible on top of it, not the other
+     way around). Purely cosmetic — a few stray pixels not lining up with
+     #bg-layer's own platform art in the corner is expected and fine
+     (foliage forgives slop far better than a hard geometric edge does). */
+  #board-stage-overlay {
+    position: absolute;
+    left: 0; top: 0;
+    width: 2400px; height: 1560px;
+    background-image: url('assets/stage.png');
+    background-size: 100% 100%;
+    pointer-events: none;
+  }
+  #content {
+    flex: 1;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 28px;
+    padding: 32px 24px;
+    text-align: center;
+    overflow: hidden;
+  }
+  .big-text {
+    /* Fixed canvas px, not vw — vw is computed against the real viewport
+       and ignores #board-root-back's scale transform, so it used to
+       silently get shrunk a second time once #stage moved into the rigid
+       canvas (this rendered at ~72px in typical usage before that move,
+       hence the 150px canvas-px target here: 72 / ~0.48 typical scale). */
+    font-size: 150px;
+    font-weight: 800;
+    line-height: 1.15;
+    margin: 0;
+  }
+  .label-text {
+    font-size: 83px; /* was clamp(22px, 5vw, 40px) — see .big-text comment */
+    font-weight: 600;
+    margin: 0;
+    color: var(--ink);
+  }
+  .sub-text {
+    font-size: 54px; /* was clamp(18px, 3.5vw, 26px) — see .big-text comment */
+    font-weight: 500;
+    color: var(--muted);
+    margin: 0;
+  }
+  .char-wrap img, .picture-wrap img {
+    max-width: 92vw;
+    max-height: 80vh;
+    object-fit: contain;
+    display: block;
+  }
+  /* composite-stage's width/height are set inline by JS (buildCompositeStage /
+     applyStageSize) so the box is deliberately sized to fit within the
+     available screen space with room to spare — see STAGE_WIDTH_FRACTION /
+     STAGE_HEIGHT_FRACTION below if it ever needs to be nudged bigger/smaller. */
+  .composite-stage {
+    position: relative;
+  }
+  .composite-stage img,
+  .composite-stage .placeholder {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  img.faded {
+    opacity: 0.2; /* re-drill backdrop, done in code instead of a separate "-50" asset */
+  }
+  @keyframes popIn {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+  }
+  .pop-in {
+    transform-origin: center;
+    animation: popIn 0.4s ease-out;
+  }
+  .placeholder {
+    display: flex; align-items: center; justify-content: center;
+    width: min(70vw, 480px);
+    aspect-ratio: 4 / 3;
+    border: 2px dashed var(--line);
+    border-radius: 12px;
+    background: #fafafa;
+    color: var(--muted);
+    font-size: 15px;
+    padding: 12px;
+    text-align: center;
+  }
+  .placeholder.small { width: 34vw; }
+  /* READING PHASE — two mascots/letters side by side; whichever one is
+     "active" this tap pulses in place (see .reading-box--pulse) instead of
+     an arrow pointing at it. Always right-to-left (Sa on the right, Ba on
+     the left) to match how סַבָּא is actually spelled/read in Hebrew — true
+     for the mascot rounds AND the real-letter round, not just the letters. */
+  .reading-pair {
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4vw;
+    width: 100%;
+  }
+  .reading-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  /* Reading-pair mascot/letter round: a fixed-size absolute canvas (see
+     buildReadingStage in the JS) rather than a flex row. Sa's box and Ba's
+     box are positioned independently with fixed pixel coordinates computed
+     once per frame — neither can push or resize the other, matching how the
+     reference slide deck itself is built
+     (separate objects, manually placed, allowed to sit wherever they need
+     to). */
+  .reading-stage {
+    position: relative;
+  }
+  .reading-box {
+    position: absolute; /* left/top/width/height set inline by JS */
+    display: flex;
+    /* Bottom-anchored (not centered): a mascot image fills the box edge to
+       edge via .reading-box-img below (this alignment doesn't apply to it,
+       since it's positioned absolutely), but the letters round's plain text
+       is a normal in-flow child — centering it vertically in the same tall
+       square box as a mascot left a lot of empty box below the glyph. */
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .reading-box-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  /* ATTENTION CUE — replaces the arrow entirely (see buildReadingStage's
+     comment for why): the active side pulses in place ONCE, instead of a
+     separate arrow element appearing next to it. Single pop, not a double
+     bounce — Noam's call: this plays during a manual, tap-your-own-pace
+     rhythm drill (sa-ba, sa-ba, then the same rhythm again with the real
+     letters), and a double bounce broke that rhythm/felt cumbersome. This
+     is purely how long the pop itself takes to play once triggered — it
+     has nothing to do with how long the slide stays on screen, which is
+     entirely up to the tap. Nothing is added to or removed from the DOM
+     for this — it's a specific element animating — so there's no separate
+     element whose appearance/disappearance could ever be mistaken for
+     affecting its neighbor. Scales from and back to 100% (never from/to
+     0) — a "pulse," not a "grow from nothing."
+     Applied to the ONE focal element inside a box — the character image
+     (plain or composite-overlay) or the letter text — never to a
+     composite's faded base picture and never to the box itself. This
+     mirrors how Noam actually teaches it in person: the picture stays put,
+     only the character/letter being called out moves. */
+  @keyframes readingPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.28); }
+  }
+  .reading-box--pulse {
+    animation: readingPulse 0.8s ease-in-out 1;
+  }
+  .hebrew-text {
+    font-size: 229px; /* was clamp(48px, 10vw, 110px) — see .big-text comment */
+    font-weight: 700;
+    direction: rtl;
+    margin: 0 0 10px 0;
+  }
+  .saba-illustration {
+    max-width: 38vw;
+    max-height: 60vh;
+    object-fit: contain;
+    display: block;
+  }
+  /* Saba reveal — Granddad's clip fills the same stage as the word (see
+     buildSabaRevealStage), scaled/centered like any other stage content.
+     Inserted as the stage's first child, so normal DOM paint order alone
+     puts it under the letter boxes — no z-index needed. */
+  .saba-reveal-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  /* Lives inside #ui-overlay now (see the "LOCKED DESIGN DECISION" comment
+     below on #ui-overlay) — a fixed-position bar drawn OVER the bottom of
+     the stage, not a flex sibling that shrinks #content anymore. This is
+     what makes it a true UI-layer resident: #content always measures the
+     full stage regardless of whether this bar exists, has any text, or is
+     ever deleted outright — none of that can ever feed back into the
+     teaching-phase rect math. Hidden completely (caption-bar--empty) when
+     the current frame has no caption text, instead of always showing an
+     empty dark strip. */
+  #caption-bar {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: var(--caption-h);
+    background: #111;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 20px;
+    font-size: clamp(15px, 2.6vw, 19px);
+    text-align: center;
+  }
+  #caption-bar.caption-bar--empty { display: none; }
+  #hud {
+    position: fixed;
+    top: 8px; right: 12px;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    z-index: 20;
+  }
+  #frame-id {
+    position: fixed;
+    top: 8px; left: 12px;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #bbb;
+    background: rgba(0,0,0,0.04);
+    padding: 2px 6px;
+    border-radius: 4px;
+    z-index: 20;
+    display: none;
+  }
+  #frame-id.show { display: block; }
+  #back-btn {
+    position: fixed;
+    bottom: calc(var(--caption-h) + 10px);
+    left: 10px;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.06);
+    color: var(--muted);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    z-index: 20;
+  }
+  /* LOCKED DESIGN DECISION — "game UI" chrome layer (top bar, avatar,
+     decorative icons later — no login/points, just look-and-feel), first
+     inhabited by the saba-reveal confetti burst below: built exactly like
+     #hud/#frame-id/#back-btn above — position: fixed, living outside
+     #stage's flex flow entirely, never inside #content and never
+     reserving real space in the flex column. The reading-round layout
+     (mascots, letters, Grandad's clip) computes its pixel geometry from
+     #content's LIVE measured rect (contentEl.getBoundingClientRect() in
+     buildReadingStage/buildCompositeStage) — that math was tuned by eye
+     and by pixel measurement across many iterations. A fixed-position
+     overlay never changes that rect, so it's guaranteed not to disturb
+     any of the teaching-phase alignment. If a bar ever needs to actually
+     claim real document-flow space instead of overlaying (shrinking
+     #content), that's still fine, but it changes the rect and means
+     re-verifying the reading-round frames afterward — don't assume it's
+     free the way a fixed-position overlay is. */
+  #ui-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none; /* click-through — #stage's own click listener
+                              is what advances the deck; this layer must
+                              never intercept that tap, now or for
+                              whatever gets added here later. */
+    z-index: 25; /* above #hud/#frame-id/#back-btn (20), above #content */
+  }
+  #confetti-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  /* DELIGHT BAR — see the HTML comment above #delight-bar and the JS
+     "DELIGHT BAR MODULE" further down. Purely decorative, scoped to the
+     board's own bounds via --board-inset so it never spills onto the
+     colored background layer, never reserves space in #stage's flex
+     column, never touches #content's rect. Delete this rule block (plus
+     the markup and its JS module) and everything else keeps running. */
+  /* Grouped cluster (notches+line, XP pill hanging below-right, dragon to
+     the right), top-right, matched pixel-for-pixel against the designer's
+     Photoshop reference mockup. */
+  #delight-bar {
+    /* Hidden — superseded by the new topbar.png game-board chrome below
+       (#board-topbar), which already covers the star/XP pill and 6-slot
+       progress stepper in the new visual design. Kept in the DOM/CSS
+       untouched rather than deleted, so it's a one-line revert if needed. */
+    display: none;
+    position: fixed;
+    top: 22px;
+    right: calc(var(--board-inset) + 40px);
+    align-items: flex-start;
+    gap: 26px;
+  }
+  #meter-group {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+  }
+  #progress-track {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+  }
+  /* connecting stepper line, drawn behind the notches so each opaque
+     notch visually "breaks" it into segments — matches the reference */
+  #progress-track::before {
+    content: '';
+    position: absolute;
+    left: 9px;
+    right: 9px;
+    top: 50%;
+    height: 2px;
+    background: var(--line);
+    transform: translateY(-50%);
+    z-index: 0;
+  }
+  .progress-notch {
+    position: relative;
+    z-index: 1;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    background: #fff;
+    transition: background 0.3s ease, border-color 0.3s ease;
+  }
+  .progress-notch--filled {
+    background: #3498db;
+    border-color: #3498db;
+  }
+  /* #xp-badge/#xp-value/#xp-star: same elements, same animateXpTo() logic
+     as before — just relocated out of the (now hidden) #delight-bar into
+     #board-topbar's own dark track area (see #board-xp below), so the
+     styling is redone for that context: no white pill chip (doesn't read
+     against the art), light text since it now sits on a dark background,
+     and the little redundant star icon hidden since topbar.png already
+     has its own gold star coin doing that job. */
+  #xp-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 700;
+    font-size: 15px;
+    color: #eaf6ff;
+  }
+  #xp-badge .xp-label {
+    color: #8fd6ff;
+  }
+  #xp-badge.xp-badge--pulse {
+    animation: xpPulse 0.4s ease-out;
+  }
+  @keyframes xpPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.18); }
+  }
+  #xp-star { display: none; }
+  /* Positioned relative to #board-topbar (percentages measured directly
+     off topbar.png's own pixel geometry, 1596x160 native) — covers the
+     dark track area to the right of the star coin, left of the 6 slots. */
+  #board-xp {
+    position: absolute;
+    left: 7.5%; top: 0; width: 17%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* The 6 per-letter completion slots, positioned over topbar.png's white
+     squares (measured: each ~78x79px within the 1596x160 art). Empty/
+     invisible until that letter's teaching cycle completes, at which
+     point JS sets the background-image to that letter's characterImg
+     (the same transparent mascot PNGs used elsewhere) and reveals it. */
+  .board-slot {
+    position: absolute;
+    top: 23.75%; height: 49.375%;
+    width: 4.887%;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    opacity: 0;
+    transform: scale(0.6);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  .board-slot--filled { opacity: 1; transform: scale(1); }
+  /* Box aspect matches dragon-idle.png's native 480:522 exactly, so the
+     idle art fills it edge-to-edge with zero letterboxing slack. The clap
+     video (320:320) is measurably a different aspect/crop from the idle
+     art (verified via ink-bounding-box analysis of both assets), so without
+     this the two would visually "jump" — the character sitting at a
+     different height — the instant idle swaps to clap. Matching the box to
+     idle's aspect plus top-anchoring both (object-position below) lines up
+     both assets' actual character (not canvas) bottom edge to within
+     <0.2% of the box height. */
+  #dragon-mascot {
+    position: relative;
+    height: 92px;
+    aspect-ratio: 480 / 522;
+    flex-shrink: 0;
+  }
+  #dragon-mascot img,
+  #dragon-mascot video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: top center;
+  }
+  #dragon-clap-video { display: none; }
+  #dragon-mascot.dragon--playing #dragon-idle-img { display: none; }
+  #dragon-mascot.dragon--playing #dragon-clap-video { display: block; }
+
+  /* ===================================================================
+     GAME BOARD LAYOUT — Phase 1 (static placement, no behavior/logic yet;
+     see the layout preview this was pixel-measured from). Five new pieces,
+     all coordinates expressed as % of the 2400x1560 design canvas the
+     source PNGs were built at, so they scale together consistently with
+     #bg-layer's own background-size:cover. Assumes the viewport is close
+     to that canvas's 20:13 aspect ratio (true for the MacBook Air target
+     device fullscreen) — revisit this math if/when a genuinely responsive
+     layout is needed.
+
+     Stacking: #board-white-fill sits between #bg-layer and #stage (below
+     the teaching content, above the background) since the video/mascot
+     content that renders inside #stage needs to paint on top of it, not
+     under it. #board-frame, #board-topbar, #board-arrow-l, #board-arrow-r
+     and #board-dragon all live inside #ui-overlay (already reserved for
+     exactly this — see the
+     "LOCKED DESIGN DECISION" comment above), so they paint above the
+     teaching content, matching the "wood frame + chrome sits on top and
+     crops the content underneath" design. */
+  /* #board-white-fill: plain CSS shape, not an image. The new frame's
+     hole is a simple rounded rectangle (no notch), so there's no need for
+     a raster mask derived from the frame's alpha channel — that approach
+     also inherited the frame art's own soft bevel/shadow edges as a hazy
+     gradient border, which is exactly what this avoids. Rect measured
+     directly against game-board.png's opaque pixels (left/top/right/
+     bottom hole boundaries at safe mid-edge sample points); radius is a
+     visual estimate to be fine-tuned against a screenshot. */
+  #board-white-fill {
+    position: absolute;
+    left: 411px; top: 361px;
+    width: 1555px; height: 921px;
+    background-color: #fff;
+    border-radius: 10px;
+    pointer-events: none;
+  }
+  #board-frame {
+    position: absolute;
+    left: 0; top: 0;
+    width: 2400px; height: 1560px;
+    background-image: url('assets/game-board.png');
+    background-size: 100% 100%;
+    pointer-events: none;
+  }
+  #board-topbar {
+    /* Pixel coordinates on the 2400x1560 design canvas (same numbers as
+       before, just no longer expressed as viewport percentages — see the
+       #board-root-back/front comment above for why). Shrunk to 75% of its
+       original size (1596x160 -> 1197x120), re-centered, pushed up for
+       clearance from the frame's top gem ornament. */
+    position: absolute;
+    left: 602px; top: 25px;
+    width: 1197px; height: 120px;
+    background-image: url('assets/topbar.png');
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    pointer-events: none;
+  }
+  #board-arrow-l, #board-arrow-r {
+    position: absolute;
+    top: 677px;
+    width: 156px; height: 206px;
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    pointer-events: none;
+  }
+  #board-arrow-l { left: 63px; background-image: url('assets/arrow-L.png'); }
+  #board-arrow-r { left: 2168px; background-image: url('assets/arrow-R.png'); }
+  #board-dragon {
+    position: absolute;
+    left: 1820px; top: 960px;
+    width: 420px; height: 420px;
+    pointer-events: none;
+    transform: scaleX(-1); /* mirrored to face the board — he's on the
+                               right side, art was drawn facing right */
+  }
+  /* All 20 jump frames (plus the idle frame, f00, reused as frame 0) are
+     real <img> elements stacked on top of each other, built once in JS —
+     see the DELIGHT BAR MODULE. Idle vs. jumping is just which one has
+     .dragon-frame--active (opacity 1); nothing about background-image
+     ever changes after page load. This replaced an earlier version that
+     swapped background-image per frame via setInterval — worked fine in
+     Safari but flickered in Chrome/Firefox (those engines re-decode/
+     repaint on every background-image URL change even when the image is
+     already cached; Safari apparently doesn't). Toggling which pre-
+     decoded, already-painted <img> is visible is compositor-only, so
+     there's nothing left to flicker regardless of browser. */
+  #board-dragon img {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    object-fit: contain;
+    opacity: 0;
+  }
+  #board-dragon img.dragon-frame--active { opacity: 1; }
+  .blank-line {
+    display: inline-block;
+    min-width: 3em;
+    border-bottom: 3px solid var(--ink);
+    margin: 0 6px;
+  }
+</style>
+</head>
+<body>
+<div id="bg-layer"></div>
+<div id="board-root-back">
+  <div id="board-white-fill"></div>
+  <div id="stage">
+    <div id="content"></div>
+  </div>
+</div>
+<div id="hud"></div>
+<div id="frame-id"></div>
+<div id="back-btn">&#8249;</div>
+<!-- UI OVERLAY LAYER — see the "LOCKED DESIGN DECISION" comment above.
+     Fixed, click-through, lives outside #stage entirely. Confetti canvas
+     and the caption bar live in here — this whole div (markup, CSS, and
+     its JS section below) can be deleted outright and the teaching build
+     keeps running untouched; see MOMENTS.onFrameRendered in the JS. -->
+<div id="ui-overlay">
+  <canvas id="confetti-canvas"></canvas>
+  <div id="caption-bar"><span id="caption-text"></span></div>
+  <!-- DELIGHT BAR — hidden, see the "display: none" comment on #delight-bar
+       in the CSS above. Superseded by the game-board chrome below. Its old
+       6 progress dots are gone (replaced by .board-slot below); #xp-badge
+       moved out into #board-topbar (see #board-xp) since it's still live —
+       same element, same animateXpTo() logic, just relocated. -->
+  <div id="delight-bar">
+    <div id="meter-group">
+      <div id="progress-track"></div>
+    </div>
+    <div id="dragon-mascot">
+      <img id="dragon-idle-img" src="assets/dragon-idle.png" alt="">
+      <video id="dragon-clap-video" src="assets/dragon-clap.mp4" muted playsinline preload="auto"></video>
+    </div>
+  </div>
+</div>
+<!-- GAME BOARD LAYOUT — Phase 1 static placement + Phase 2 success trigger
+     (see the #board-root-back/front CSS comment above #board-root-back for
+     the full explanation of why these live in their own rigidly-scaled
+     wrapper instead of #ui-overlay). -->
+<div id="board-root-front">
+  <div id="board-frame"></div>
+  <div id="board-topbar">
+    <div id="board-xp">
+      <div id="xp-badge">
+        <span id="xp-value">0</span>
+        <span class="xp-label">XP</span>
+        <img id="xp-star" src="assets/star.png" alt="">
+      </div>
+    </div>
+    <!-- 6 completion slots, one per LETTER_ORDER entry (sa, ba, ka, na,
+         pa, ra) — left-to-right in the DOM/art, which reads correctly for
+         this RTL deck since the slots themselves aren't direction-coded,
+         just filled in teaching order. -->
+    <div class="board-slot" style="left: 25.000%;"></div>
+    <div class="board-slot" style="left: 32.206%;"></div>
+    <div class="board-slot" style="left: 39.474%;"></div>
+    <div class="board-slot" style="left: 46.679%;"></div>
+    <div class="board-slot" style="left: 53.822%;"></div>
+    <div class="board-slot" style="left: 60.965%;"></div>
+  </div>
+  <div id="board-arrow-l"></div>
+  <div id="board-arrow-r"></div>
+  <div id="board-stage-overlay"></div>
+  <div id="board-dragon"></div>
+</div>
+
+<script>
+/* =========================================================================
+   SABA TEACHING SLIDESHOW
+   Zuriel Yahav method. Chapter 1: Sa + Ba -> Saba. Chapter 2: Ka + Na -> Kana.
+   Both chapters share the same generic frame-building functions below —
+   see buildReadingPhase/buildReadingStage, parameterized over any letter
+   pair plus an optional silent "companion" letter (Aleph for Ba, He for Na).
+
+   HOW TO EDIT
+   -----------
+   1) ASSETS: put your PNGs in this same folder and reference the exact
+      filenames below. If a filename is left blank or the file isn't found
+      yet, the deck shows a dashed placeholder box naming the missing file
+      instead of crashing — safe to open and click through right now.
+
+   2) LETTERS / PARTS: each letter has an ordered "parts" list (label text
+      for each anchor point in its picture). Edit labels/order freely —
+      the whole cycle (reveal, anchor, re-drill, blank, recall) rebuilds
+      itself from this data.
+
+   3) CAPTIONS: CAPTIONS[frameId] = 'subtitle text'. Leave '' for silence.
+      Lives in the UI OVERLAY LAYER section further down (search
+      "CAPTION MODULE"), not up here with ASSETS/LETTERS — captions are a
+      UI-layer concern, not part of the teaching build itself. Press the
+      "i" key while viewing the deck to show each frame's id in the
+      top-left corner, so you know which id to paste text against.
+
+   4) MOMENTS: MOMENTS.onX(...) functions are called at key beats — see
+      buildSabaRevealStage for the confetti/sound hookup on word-reveal.
+
+   NAVIGATION (for you, while teaching)
+   -------------------------------------
+   Tap anywhere            -> next slide
+   Tiny "‹" bottom-left     -> previous slide
+   Arrow keys / space       -> next / previous (for testing on a Mac)
+   "i" key                  -> toggle frame-id overlay (for caption editing)
+   ========================================================================= */
+
+  // ---------------------------------------------------------------------
+  // 1) ASSETS — drop files into the "assets" folder next to this HTML file.
+  //    Naming convention (Noam's):
+  //      {char}-{picture}-c.png     full character alone
+  //      {char}-{picture}-i.png     the plain picture ("image")
+  //      {char}-{picture}-e1.png    element 1 overlay (transparent, registered to i.png)
+  //      {char}-{picture}-e2.png    element 2 overlay, e3/e4 etc. as needed
+  //    All same-canvas files stack at 0,0 and register perfectly.
+  //    (No separate "-50" faded file needed — the 50% opacity re-drill
+  //    backdrop is done in code from the same -c.png, so there's only one
+  //    character file to keep in sync per letter.)
+  // ---------------------------------------------------------------------
+  const ASSETS = {
+    sa_character:   'assets/sa-sal-c.png',
+    sal_picture:    'assets/sa-sal-i.png',
+    ba_character:   'assets/ba-bakbuk-c.png',
+    bakbuk_picture: 'assets/ba-bakbuk-i.png',
+    arrow_img:       'assets/arrow.png',
+    // Real Hebrew letters round — pre-rendered PNGs (Noam's Photoshop file,
+    // Noto Sans Hebrew), NOT live CSS text. Each is a letter + its niqqud
+    // baked into one flat image on a shared 700x700 canvas, same convention
+    // as the mascot files above. See the LETTER-GLYPH WINDOW comment below
+    // for why this replaced live text entirely.
+    sa_letter_img: 'assets/samekh-kamatz.png',
+    ba_letter_img: 'assets/bet-kamatz-dgsh.png',
+    // Silent Aleph — properly, the word "Saba" is spelled Samech-Bet-Aleph
+    // (סבא), with the Aleph carrying no sound of its own and no niqqud.
+    // It always sits immediately to Ba's left (screen-left, since it comes
+    // right after Bet reading right-to-left) — see aleph_letter_img usage
+    // in buildReadingStage below.
+    aleph_letter_img: 'assets/aleph.png',
+    // Saba reveal — Granddad walks in, waves, holds (no loop). Background
+    // pre-corrected to pure white and audio stripped; see saba-reveal
+    // frame/case below for how it layers behind the word.
+    saba_wave_video: 'assets/saba-wave-compressed.mp4',
+    // "Level complete" sting — tune + light clapping, ~6s, plays once the
+    // instant this slide loads (the tap that gets here is a real user
+    // gesture, so autoplay-with-sound is allowed). Confetti timing is
+    // separate/later — see buildSabaRevealStage.
+    saba_level_complete_sound: 'assets/level-complete.MP3',
+    // Kana reveal — the boy walks in from the side (profile), turns to
+    // face forward, and settles holding the teddy bear + shopping bag
+    // ("bought" — קָנָה). 5s, white background, downscaled + audio
+    // stripped (same treatment as saba-wave-compressed.mp4 above — the
+    // original export was portrait 900x1024 at ~3MB; this is 640x728 at
+    // ~290KB, same visual quality). See kana-reveal frame/buildDeck below
+    // for the confetti timing measured against this specific clip (a
+    // left-edge object-position was tried here too, to echo Saba's
+    // walk-in, but at this clip's letterbox width it pushed the boy under
+    // the letter boxes and hid the teddy bear — Noam: revert. Left
+    // centered, same as Saba).
+    kana_video: 'assets/kana.mp4',
+
+    // ---------------------------------------------------------------------
+    // CHAPTER 2 — Ka + Na -> Kana (קָנָה, "bought"), part of the full-lesson
+    // sentence Saba Kana Para ("Grandfather bought a cow"). Same asset
+    // conventions as chapter 1 above.
+    // ---------------------------------------------------------------------
+    ka_character:    'assets/ka-karnaf-c.png',
+    karnaf_picture:  'assets/ka-karnaf-i.png',
+    na_character:    'assets/na-nahash-c.png',
+    nahash_picture:  'assets/na-nahash-i.png',
+    ka_letter_img:   'assets/kof-kamatz.png',
+    na_letter_img:   'assets/nun-kamatz.png',
+    // Silent He — קנה is spelled Qof-Nun-He, with the He carrying no sound
+    // of its own and no niqqud, same grammatical role Aleph played at the
+    // end of Saba (see LETTERS.he below). Shape confirmed fine on
+    // inspection — an earlier QA pass flagged this as looking like a Nun
+    // instead of He, but that was a compositing bug in the comparison
+    // script, not a real problem with this asset.
+    he_letter_img:   'assets/he.png',
+
+    // ---------------------------------------------------------------------
+    // CHAPTER 3 — Pa + Ra -> Para (פָּרָה, "cow"), completing the full-lesson
+    // sentence Saba Kana Para ("Grandfather bought a cow"). Same asset
+    // conventions as chapters 1-2 above.
+    // ---------------------------------------------------------------------
+    pa_character:   'assets/pa-parpar-c.png',
+    parpar_picture: 'assets/pa-parpar-i.png',
+    ra_character:   'assets/ra-rakevet-c.png',
+    rakevet_picture: 'assets/ra-rakevet-i.png',
+    pa_letter_img:  'assets/pe-kamatz-dgsh.png',
+    ra_letter_img:  'assets/reish-kamatz.png',
+    // Para reuses the same silent He as Kana (LETTERS.he) — פרה is spelled
+    // Pe-Resh-He, He again carrying no sound/niqqud of its own.
+    //
+    // Para reveal — the cow stands still (idle blink/tail-swish/bell-sway,
+    // no walk-in arc like Saba/Kana's clips), so there's no "arrival" beat
+    // to sync confetti to — see confettiAt in buildDeck below. 5s,
+    // downscaled + audio stripped, same treatment as the other two reveal
+    // clips (original was 1176x784 at ~1.4MB; this is 960x640 at ~245KB).
+    para_video: 'assets/para.mp4',
+    // Final full-sentence celebration ("סַבָּא קָנָה פָּרָה" — Granddad bought a
+    // cow), played after the sentence-reading round below. Same treatment
+    // as every other reveal clip: downscaled + audio stripped + faststart
+    // remux (original was 1920x1080 at ~8.16MB; this is 1280x720 at
+    // ~680KB, matching saba-wave-compressed.mp4's width since both are
+    // 16:9 "big finale" clips).
+    sentence_reveal_video: 'assets/saba-para-level-complete.mp4',
+  };
+
+  // ---------------------------------------------------------------------
+  // 2) LETTERS — PLACEHOLDER element breakdowns below (marked EDIT ME).
+  //    Swap in the real Sal / Bakbuk elements any time — any number of
+  //    elements works (2, 3, or 4), no code changes needed.
+  //
+  //    Each element is a TRANSPARENT overlay PNG (just the red-circle
+  //    marker) sized/registered to sit exactly on top of the picture (round 1)
+  //    or the faded picture + character (round 2 re-drill) below it.
+  //
+  //    `origin`: the "x% y%" point (as measured across that element PNG's
+  //    own canvas) to scale the pop-in animation from — the center of the
+  //    visible red mark, not the center of the mostly-transparent canvas.
+  //    Precomputed from the actual file (measured, not detected live in the
+  //    browser). Recompute this any time that element's PNG is replaced.
+  // ---------------------------------------------------------------------
+  const LETTERS = {
+    sa: {
+      id: 'sa',
+      name: 'Sa',
+      characterImg: ASSETS.sa_character,
+      pictureImg: ASSETS.sal_picture,
+      pictureName: 'Sal',
+      letterImg: ASSETS.sa_letter_img,
+      elements: [
+        { id: 'ring', overlayImg: 'assets/sa-sal-e1.png', label: 'This is the ring', origin: '37% 58%' },
+        { id: 'net',  overlayImg: 'assets/sa-sal-e2.png', label: 'This is the net',  origin: '37% 77%' },
+      ],
+    },
+    ba: {
+      id: 'ba',
+      name: 'Ba',
+      characterImg: ASSETS.ba_character,
+      pictureImg: ASSETS.bakbuk_picture,
+      pictureName: 'Bakbuk',
+      letterImg: ASSETS.ba_letter_img,
+      // Saba (סבא) is spelled Samech-Bet-Aleph — the silent Aleph always
+      // rides along with Ba's letter-image in the letters round (see
+      // buildReadingStage's companion-letter handling below). Read
+      // generically off whichever letter is in the "left/second" slot, so
+      // the same code path also carries chapter 2's Na -> He.
+      silentCompanion: 'aleph',
+      elements: [ // EDIT ME — placeholder bottle elements + placeholder origins
+        { id: 'neck', overlayImg: 'assets/ba-bakbuk-e1.png', label: 'This is the neck', origin: '50% 50%' },
+        { id: 'body', overlayImg: 'assets/ba-bakbuk-e2.png', label: 'This is the body', origin: '50% 50%' },
+        { id: 'base', overlayImg: 'assets/ba-bakbuk-e3.png', label: 'This is the base', origin: '50% 50%' },
+      ],
+    },
+    // Not a taught letter — a minimal entry so the silent Aleph can reuse
+    // the same letterId-keyed measurement caches (getLetterWindow/
+    // letterMetrics) as sa/ba below. Only .letterImg is ever read for it.
+    // hasNiqqud: false is documentation, not (yet) branched on in code —
+    // it flags that this letter's vertical position is pinned to its
+    // companion letter's canvas origin (see buildReadingStage) rather
+    // than the usual kamatz-ink-bottom baseline, because it has no niqqud
+    // of its own to zero against. Future silent letters (He, etc. — per
+    // Noam, many Hebrew words end in a silent letter shown without
+    // niqqud) should follow the same pattern.
+    aleph: {
+      id: 'aleph',
+      hasNiqqud: false,
+      letterImg: ASSETS.aleph_letter_img,
+    },
+
+    // -----------------------------------------------------------------
+    // CHAPTER 2 — Ka + Na -> Kana. Element labels/origins below were
+    // measured directly off the actual artwork (same ink-bbox approach
+    // the app itself uses), not guessed — but the LABELS (what to call
+    // each marked part) are my best reading of the drawing, same spirit
+    // as Ba's placeholder breakdown above: happy to correct against
+    // Noam's actual intended breakdown.
+    // -----------------------------------------------------------------
+    ka: {
+      id: 'ka',
+      name: 'Ka',
+      characterImg: ASSETS.ka_character,
+      pictureImg: ASSETS.karnaf_picture,
+      pictureName: 'Karnaf',
+      letterImg: ASSETS.ka_letter_img,
+      elements: [
+        { id: 'horn-big',   overlayImg: 'assets/ka-karnaf-e1.png', label: 'This is the big horn',   origin: '81% 33%' },
+        { id: 'horn-small', overlayImg: 'assets/ka-karnaf-e2.png', label: 'This is the small horn', origin: '76% 45%' },
+        { id: 'nose',       overlayImg: 'assets/ka-karnaf-e3.png', label: 'This is the nose',       origin: '88% 53%' },
+      ],
+    },
+    na: {
+      id: 'na',
+      name: 'Na',
+      characterImg: ASSETS.na_character,
+      pictureImg: ASSETS.nahash_picture,
+      pictureName: 'Nachash',
+      letterImg: ASSETS.na_letter_img,
+      // Kana (קנה) ends in a silent He — same role Aleph played for Saba.
+      silentCompanion: 'he',
+      elements: [
+        { id: 'body',   overlayImg: 'assets/na-nahash-e1.png', label: 'This is the body',   origin: '51% 40%' },
+        { id: 'tongue', overlayImg: 'assets/na-nahash-e2.png', label: 'This is the tongue', origin: '56% 79%' },
+      ],
+    },
+    // Silent He — shared by both Kana and Para (both end in He). See
+    // ASSETS.he_letter_img's comment: shape confirmed fine, no issue.
+    he: {
+      id: 'he',
+      hasNiqqud: false,
+      letterImg: ASSETS.he_letter_img,
+    },
+
+    // -----------------------------------------------------------------
+    // CHAPTER 3 — Pa + Ra -> Para. Same as chapter 2's note: element
+    // labels/origins measured directly off the actual artwork (ink-bbox
+    // of each overlay, and of that overlay composited onto the picture to
+    // confirm which body part it lands on), labels are my best reading —
+    // happy to correct against Noam's intended breakdown.
+    // -----------------------------------------------------------------
+    pa: {
+      id: 'pa',
+      name: 'Pa',
+      characterImg: ASSETS.pa_character,
+      pictureImg: ASSETS.parpar_picture,
+      pictureName: 'Parpar',
+      letterImg: ASSETS.pa_letter_img,
+      elements: [
+        { id: 'wing', overlayImg: 'assets/pa-parpar-e1.png', label: 'This is the wing', origin: '69% 35%' },
+        { id: 'eye',  overlayImg: 'assets/pa-parpar-e2.png', label: 'This is the eye',  origin: '72% 28%' },
+        { id: 'spot', overlayImg: 'assets/pa-parpar-e3.png', label: 'This is the spot', origin: '70% 70%' },
+      ],
+    },
+    ra: {
+      id: 'ra',
+      name: 'Ra',
+      characterImg: ASSETS.ra_character,
+      pictureImg: ASSETS.rakevet_picture,
+      pictureName: 'Rakevet',
+      letterImg: ASSETS.ra_letter_img,
+      // Para (פרה) ends in a silent He — same role Aleph/He played for
+      // Saba/Kana. Reuses the SAME LETTERS.he entry (no new asset needed).
+      silentCompanion: 'he',
+      elements: [
+        { id: 'smoke',    overlayImg: 'assets/ra-rakevet-e1.png', label: 'This is the smoke',    origin: '34% 24%' },
+        { id: 'chimney',  overlayImg: 'assets/ra-rakevet-e2.png', label: 'This is the chimney',  origin: '42% 44%' },
+      ],
+    },
+  };
+
+  // ---------------------------------------------------------------------
+  // 3) CAPTIONS — this data now lives in the UI OVERLAY LAYER section
+  //    further down (search for "CAPTIONS" near #ui-overlay's JS), not
+  //    here. Captions are purely a UI-layer concern: the build never reads
+  //    or writes caption text itself, only fires MOMENTS.onFrameRendered
+  //    below and lets the UI layer decide what to do with it.
+  // ---------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------
+  // 4) MOMENT HOOKS — no-ops in Pass 1. Pass 2 attaches effects here.
+  // ---------------------------------------------------------------------
+  const MOMENTS = {
+    onCorrectAnswerConfirmed(frame) {},
+    onCycleComplete(letterId) {},
+    onFinalWordRevealed() {},
+    // Called unconditionally at the end of every renderFrame() — the one
+    // seam the UI layer uses to know a new frame is showing. No-op here by
+    // design: the build itself has zero caption/UI-layer awareness. The
+    // real implementation is attached from the UI OVERLAY LAYER section
+    // further down (see #ui-overlay's caption module) — delete that
+    // section and this stays a harmless no-op, nothing here breaks.
+    onFrameRendered(frame) {},
+  };
+
+  // =========================================================================
+  // TEMPLATE ENGINE — builds one letter's full teaching cycle from its data.
+  // You shouldn't need to edit below this line to change content.
+  // =========================================================================
+
+  function buildCycleFrames(L) {
+    const frames = [];
+
+    // 1. Reveal character alone + tease hiding spot — ONE frame, one tap
+    // ("This is Sa. Sa likes hiding in there…" said together, then tap).
+    frames.push({
+      id: `${L.id}-character`,
+      kind: 'solo-character',
+      img: L.characterImg,
+    });
+
+    // 2. Reveal picture (no breakdown yet)
+    frames.push({
+      id: `${L.id}-picture`,
+      kind: 'picture-reveal',
+      img: L.pictureImg,
+    });
+
+    // 3..n. Anchor each element on the plain picture — CUMULATIVE: every
+    // previously-shown element overlay stays on screen, the new one is
+    // added on top of it (never replaced).
+    const shownOnPicture = [];
+    L.elements.forEach((elmt) => {
+      shownOnPicture.push(elmt.overlayImg);
+      frames.push({
+        id: `${L.id}-anchor-${elmt.id}`,
+        kind: 'anchor',
+        imgs: [L.pictureImg, ...shownOnPicture],
+        animateSrc: elmt.overlayImg, // only the element that's new THIS tap pops in
+        animateOrigin: elmt.origin,
+      });
+    });
+
+    // ROUND 2 (re-drill): the character stays on screen at 100% opacity for
+    // the whole round, stacked over the picture faded to 50% — and elements
+    // accumulate on top of THAT, the same "everything stays, new thing adds
+    // on" rule as round 1. Nothing is ever withheld/blanked; every element
+    // gets shown, then a final tap confirms the picture's name.
+    const redrillBase = [L.pictureImg, L.characterImg]; // faded picture + character, present for all of round 2
+    frames.push({
+      id: `${L.id}-redrill-character`,
+      kind: 'anchor',
+      imgs: [...redrillBase],
+      fadeBase: true,
+    });
+
+    const shownInRedrill = [];
+    L.elements.forEach((elmt) => {
+      shownInRedrill.push(elmt.overlayImg);
+      frames.push({
+        id: `${L.id}-redrill-${elmt.id}`,
+        kind: 'anchor',
+        imgs: [...redrillBase, ...shownInRedrill],
+        fadeBase: true,
+        animateSrc: elmt.overlayImg, // only the element, never the character, pops in
+        animateOrigin: elmt.origin,
+      });
+    });
+
+    // Confirm the picture's name — back to the full-opacity picture, no
+    // character, no element overlays.
+    frames.push({
+      id: `${L.id}-redrill-answer`,
+      kind: 'picture-reveal',
+      img: L.pictureImg,
+      moment: 'onCorrectAnswerConfirmed',
+    });
+
+    // Cold recall test — same "faded picture + character" look as the
+    // re-drill transition, reused as the recall cue, then confirmed with
+    // the full-opacity picture again.
+    frames.push({
+      id: `${L.id}-recall-prompt`,
+      kind: 'anchor',
+      imgs: [...redrillBase],
+      fadeBase: true,
+    });
+    frames.push({
+      id: `${L.id}-recall-answer`,
+      kind: 'recall-answer',
+      img: L.pictureImg,
+      moment: 'onCorrectAnswerConfirmed',
+    });
+
+    // End-of-cycle celebration — plain "Yay!" text, no mascot/decoration (Pass 2 attaches effects later)
+    frames.push({
+      id: `${L.id}-yay`,
+      kind: 'yay',
+      text: 'Yay!',
+      moment: 'onCycleComplete',
+      momentArg: L.id,
+    });
+
+    return frames;
+  }
+
+  // Phase 2 — "where's it hiding?" reinforcement, done AFTER both letters'
+  // full teaching cycles are complete (first letter fully taught, then
+  // second, then this). For each letter: the character sits at full
+  // opacity over its picture faded to 20% (same look/asset/fade as the
+  // in-cycle re-drill — no new images needed), Noam asks live where it
+  // hides, then one tap reveals the plain full-opacity picture as the
+  // answer. No element overlays here — just the hiding-spot recall.
+  // `letterIds` — which two (or more) LETTERS keys to build this for, in
+  // order; lets chapter 2 (Ka/Na) reuse this verbatim.
+  function buildHidingRecall(letterIds) {
+    const frames = [];
+    letterIds.map((id) => LETTERS[id]).forEach((L) => {
+      frames.push({
+        id: `${L.id}-hiding-prompt`,
+        kind: 'anchor',
+        imgs: [L.pictureImg, L.characterImg],
+        fadeBase: true,
+      });
+      frames.push({
+        id: `${L.id}-hiding-answer`,
+        kind: 'picture-reveal',
+        img: L.pictureImg,
+        moment: 'onCorrectAnswerConfirmed',
+      });
+    });
+    return frames;
+  }
+
+  // Phase 3 — reading. Sa and Ba are called by name (character mascots first,
+  // then the real Hebrew letters), taking turns: teacher demonstrates once,
+  // then the kid does it. Whichever side isn't "active" for a given tap just
+  // sits there as a plain, unfaded character/letter — nothing about it
+  // changes until it's its turn.
+  //
+  // Slot shapes (used for both `sa` and `ba` on every reading-pair frame):
+  //   { type: 'character', src, letter }       — plain mascot image, cropped
+  //                                              through that LETTER's single
+  //                                              reading window (see the
+  //                                              READING WINDOW comment
+  //                                              above computeInkBBoxPixels)
+  //   { type: 'composite', base, overlay,      — mascot at full opacity over
+  //     letter }                                 its picture faded to 20%,
+  //                                              BOTH cropped through that
+  //                                              same per-letter window, and
+  //                                              rendered as two separately
+  //                                              stacked images so the pulse
+  //                                              (see buildReadingBox) can
+  //                                              animate the character alone
+  //                                              without moving the picture
+  //   { type: 'letter-image', letter }         — the real Hebrew letter (+
+  //                                              niqqud) round: a pre-rendered
+  //                                              PNG (Noam's Photoshop file,
+  //                                              not live CSS text), shown
+  //                                              at its native pixels — no
+  //                                              crop, same "use the source
+  //                                              as-is" idea as the mascot
+  //                                              picture window. Placed via
+  //                                              the LETTER-GLYPH window/
+  //                                              metrics system (see below,
+  //                                              mirrors the mascot one but
+  //                                              baseline-anchored on each
+  //                                              glyph's kamatz mark instead
+  //                                              of ink-centered, per Noam's
+  //                                              own reference point).
+  //
+  // `letter` on image slots is the LETTERS key ('sa' | 'ba' | 'ka' | 'na' |
+  // ...) — it selects which reading window (and which READING_CHAR_SCALE
+  // nudge) applies.
+  //
+  // `active`: a LETTERS key | null — which side (if any) pulses this tap.
+  // Every reading-pair frame renders right-to-left (right-slot letter on
+  // the right, left-slot letter on the left, via .reading-pair's
+  // row-reverse) since Hebrew is spelled/read that way — true for the
+  // mascot rounds too, not just the letters.
+  //
+  // Generic over any two letters + an optional silent companion on the
+  // left-slot letter (see LETTERS[leftId].silentCompanion) — chapter 1
+  // (Sa/Ba/Aleph -> Saba) and chapter 2 (Ka/Na/He -> Kana) both build off
+  // this same function. `opts.idPrefix` keeps every frame id chapter 1
+  // already shipped with completely unchanged (called with '' below);
+  // chapter 2 uses 'kana-' so nothing collides.
+  function buildReadingPhase(rightId, leftId, opts) {
+    const right = LETTERS[rightId];
+    const left = LETTERS[leftId];
+    const idPrefix = opts.idPrefix || '';
+
+    const rightCharacter = { type: 'character', src: right.characterImg, letter: rightId };
+    const leftCharacter = { type: 'character', src: left.characterImg, letter: leftId };
+    const rightComposite = { type: 'composite', base: right.pictureImg, overlay: right.characterImg, letter: rightId };
+    const leftComposite = { type: 'composite', base: left.pictureImg, overlay: left.characterImg, letter: leftId };
+    const rightLetter = { type: 'letter-image', letter: rightId };
+    const leftLetter = { type: 'letter-image', letter: leftId };
+
+    return [
+      // Round 1 — teacher demonstrates each name in turn.
+      { id: `${idPrefix}reading-intro`, kind: 'reading-pair', sa: rightCharacter, ba: leftCharacter, active: null },
+      { id: `${idPrefix}reading-demo-${rightId}`, kind: 'reading-pair', sa: rightComposite, ba: leftCharacter, active: rightId },
+      { id: `${idPrefix}reading-demo-${leftId}`, kind: 'reading-pair', sa: rightCharacter, ba: leftComposite, active: leftId },
+
+      // Round 2 — same visuals, kid's turn (silent prompts).
+      { id: `${idPrefix}reading-your-turn`, kind: 'reading-pair', sa: rightCharacter, ba: leftCharacter, active: null },
+      { id: `${idPrefix}reading-kid-${rightId}`, kind: 'reading-pair', sa: rightComposite, ba: leftCharacter, active: rightId },
+      { id: `${idPrefix}reading-kid-${leftId}`, kind: 'reading-pair', sa: rightCharacter, ba: leftComposite, active: leftId },
+
+      // Round 3 — same drill, now with the real letters (gap between them).
+      { id: `${idPrefix}reading-letters-intro`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: null },
+      { id: `${idPrefix}reading-letters-${rightId}`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: rightId },
+      { id: `${idPrefix}reading-letters-${leftId}`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: leftId },
+      { id: `${idPrefix}reading-letters-combine`, kind: 'reading-pair', sa: rightLetter, ba: leftLetter, active: null },
+
+      // Final reveal — same word, same geometry as reading-letters-combine
+      // (built via buildReadingStage so it doesn't jump on this tap), with
+      // a clip layered in behind it. `kind: 'word-reveal'`
+      // is the generic name (see buildWordRevealStage) — reused verbatim
+      // by every chapter's reveal, not specific to Saba despite the
+      // function's historical name.
+      { id: opts.revealId, kind: 'word-reveal', sa: rightLetter, ba: leftLetter,
+        video: opts.video, sound: opts.sound, confettiAt: opts.confettiAt,
+        videoPosition: opts.videoPosition,
+        moment: 'onFinalWordRevealed' },
+    ];
+  }
+
+  // FINAL SENTENCE ROUND — the capstone after all three chapters: the whole
+  // taught sentence "סַבָּא קָנָה פָּרָה" (Grandfather bought a cow) sits still on
+  // screen first, then each tap pulses the next taught letter in reading
+  // order (Sa, Ba, Ka, Na, Pa, Ra — the exact order each was first taught),
+  // one at a time, so the child calls out each letter they already know
+  // inside the full sentence — same attention cue used throughout this
+  // whole deck (see .reading-box--pulse), no new interaction language.
+  // Ends on the same still sentence once more, then the final celebration.
+  // One full pass through the sentence: still → each letter pulses in
+  // order → still again. roundSuffix keeps every frame id unique across
+  // the two rounds below (e.g. 'sentence-intro-1' vs 'sentence-intro-2') —
+  // nothing else in the deck looks up these ids by exact string, so a
+  // plain suffix is all that's needed.
+  function buildSentenceRound(roundSuffix) {
+    const pulseOrder = ['sa', 'ba', 'ka', 'na', 'pa', 'ra'];
+    return [
+      { id: `sentence-intro${roundSuffix}`, kind: 'sentence-reading', active: null },
+      ...pulseOrder.map((id) => ({
+        id: `sentence-pulse-${id}${roundSuffix}`, kind: 'sentence-reading', active: id,
+      })),
+      { id: `sentence-outro${roundSuffix}`, kind: 'sentence-reading', active: null },
+    ];
+  }
+  // Two full rounds back to back ("I go first, then you") — Noam found one
+  // pass asked too much of the child in one go, so the same still→pulse→
+  // still sequence simply repeats once before the single celebration at
+  // the end (the celebration itself is not duplicated, only the reading).
+  function buildFinalSentencePhase() {
+    return [
+      ...buildSentenceRound('-1'),
+      ...buildSentenceRound('-2'),
+      { id: 'sentence-reveal', kind: 'sentence-reveal',
+        video: ASSETS.sentence_reveal_video, sound: ASSETS.saba_level_complete_sound,
+        confettiAt: 1.0 },
+    ];
+  }
+
+  function buildDeck() {
+    return [
+      // Chapter 1 — Sa + Ba -> Saba ("grandfather").
+      ...buildCycleFrames(LETTERS.sa),
+      ...buildCycleFrames(LETTERS.ba),
+      ...buildHidingRecall(['sa', 'ba']),
+      ...buildReadingPhase('sa', 'ba', {
+        idPrefix: '', revealId: 'saba-reveal',
+        video: ASSETS.saba_wave_video, sound: ASSETS.saba_level_complete_sound,
+        word: 'סַבָּא',
+      }),
+
+      // Chapter 2 — Ka + Na -> Kana ("bought"). Same level-complete sting
+      // reused from chapter 1 (no separate clip for this chapter).
+      ...buildCycleFrames(LETTERS.ka),
+      ...buildCycleFrames(LETTERS.na),
+      ...buildHidingRecall(['ka', 'na']),
+      ...buildReadingPhase('ka', 'na', {
+        idPrefix: 'kana-', revealId: 'kana-reveal',
+        video: ASSETS.kana_video, sound: ASSETS.saba_level_complete_sound,
+        // Measured directly from kana.mp4 (5s total): he's mid-stride/
+        // still turning through ~1.8s, feet planted and fully settled
+        // facing forward by ~1.9-2.0s — firing here lands the burst right
+        // as he "arrives", same idea as Saba's arm-lift trigger below.
+        confettiAt: 2.0,
+        // kana.mp4 is portrait (900x1024) inside a landscape stage, so
+        // object-fit:contain letterboxes it with empty gutters left and
+        // right of center. Tried pulling it toward the left edge (to echo
+        // how Saba's wide clip visually enters from screen-left) but at
+        // this letterbox width that pushed the boy under the letter boxes
+        // rendered on top, hiding the teddy bear the kids are meant to
+        // see — Noam: push it back. Left at the default centered position
+        // (no videoPosition set — see buildSabaRevealStage's '50% center'
+        // fallback for any frame that doesn't set one).
+        word: 'קָנָה',
+      }),
+
+      // Chapter 3 — Pa + Ra -> Para ("cow"), completing the lesson sentence
+      // Saba Kana Para. Same level-complete sting reused again.
+      ...buildCycleFrames(LETTERS.pa),
+      ...buildCycleFrames(LETTERS.ra),
+      ...buildHidingRecall(['pa', 'ra']),
+      ...buildReadingPhase('pa', 'ra', {
+        idPrefix: 'para-', revealId: 'para-reveal',
+        video: ASSETS.para_video, sound: ASSETS.saba_level_complete_sound,
+        // para.mp4's cow is already settled in an idle pose for the whole
+        // clip (blink/tail-swish/bell-sway, no walk-in arc to sync to
+        // unlike Saba/Kana) — firing shortly after the clip starts is
+        // enough for the reveal to register before celebrating.
+        confettiAt: 1.0,
+        word: 'פָּרָה',
+      }),
+
+      // Chapter 4 — the capstone: read all three taught words together as
+      // the actual sentence they spell, "סַבָּא קָנָה פָּרָה" (Grandfather bought
+      // a cow). Noam: "the child should be able to recognize the letters in
+      // front of him" — see buildFinalSentencePhase.
+      ...buildFinalSentencePhase(),
+    ];
+  }
+
+  // =========================================================================
+  // RENDER ENGINE
+  // =========================================================================
+
+  const frames = buildDeck();
+
+  // Preload every image referenced anywhere in the deck up front, so the
+  // browser already has each one decoded/cached by the time a tap reaches
+  // it — this is what removes the jump/stutter on first visit to a slide.
+  // Also cache each image's natural width/height as soon as it's known, so
+  // the stage can be sized correctly on the very first paint instead of
+  // waiting for an onload — this is what keeps size/position locked across
+  // every slide instead of momentarily snapping to a fallback box.
+  const imageDims = new Map();
+
+  // READING WINDOW — ONE crop window per LETTER, shared by every
+  // reading-phase state of that letter.
+  //
+  // Why one window, not two: a reading-pair slot shows the same letter's
+  // character in two states across consecutive taps — plain-alone, and
+  // composited over its own faded picture. The two hard requirements are
+  // (a) Sa's and Ba's plain characters read as a matched pair (similar
+  // size, both centered on the same baseline), and (b) a character is
+  // PIXEL-IDENTICAL the moment its picture appears behind it or disappears
+  // from behind it — no size or position jump at all. (b) forces both
+  // states to be cropped through the exact same window (any two different
+  // windows re-map the character differently — that mismatch IS the jump
+  // this deck kept trading back and forth). The full-picture requirement
+  // pins down the window itself, and (a) is solved by BOX PLACEMENT, not
+  // by the window (see below). So:
+  //
+  //   window(L) = the picture's own full native canvas — centered on the
+  //               canvas center (W/2, H/2), size = max(W, H)
+  //   (W × H read off the actual loaded picture; for the project's square
+  //   700×700 assets this is exactly "no crop at all, use the source
+  //   as-is".)
+  //
+  // FULL PICTURE, GUARANTEED — and with ZERO invented padding: the window
+  // IS the picture's own bounds, so the whole Sal/Bakbuk (Noam's memory
+  // cue) is trivially, entirely inside it, and not one transparent pixel
+  // is added around it. An earlier version instead used a square centered
+  // on the CHARACTER's ink with half-size = max(cx, W-cx, cy, H-cy) —
+  // that also guaranteed the full picture, but because that half-size is
+  // one scalar applied in all four directions from the character, it
+  // padded the same large distance on the sides where the picture doesn't
+  // actually extend (e.g. ~180px of pure transparency on Sa's inner side,
+  // ~880px windows for both letters). Each character then sat dead-center
+  // of a mostly-empty square, and since boxes were laid edge-to-edge, all
+  // that empty margin pushed the two CHARACTERS far apart on screen even
+  // with a small box gap — the exact "they drifted apart" complaint this
+  // version fixes.
+  //
+  // The plain slot crops the character through window(L). The composite
+  // crops BOTH its base picture and its character overlay through the very
+  // same window(L) — same window in, same registration out, so the "hides
+  // inside the picture" alignment is exactly preserved (relative geometry
+  // between character and picture is untouched; only the framing of the
+  // pair changes). The plain character and the composite's overlay are in
+  // fact the SAME cache entry — literally one data URL — so state switches
+  // cannot change the character even in principle; the only thing a switch
+  // does is add/remove the faded picture underneath it.
+  //
+  // THE PAIRING (and the closeness) is solved by BOX PLACEMENT: the
+  // character no longer sits at its window's center — it sits wherever
+  // the artist actually drew it, and its exact position within the window
+  // is measured once (readingMetricsCache). buildReadingStage then places
+  // and sizes each letter's box FROM those measurements so that, on
+  // screen: both characters' ink renders at the same size (one shared
+  // px-per-ink-px scale K), both characters' ink centers sit on the same
+  // horizontal line, and the horizontal gap between the two characters'
+  // FACING INK EDGES is exactly READING_CHAR_GAP_FRACTION of the screen —
+  // measured character-to-character, which is the distance the eye (and
+  // Noam) actually perceives, not box-edge-to-box-edge. All of it is
+  // computed off per-letter constants, never off which state a slot is in,
+  // so nothing can move across a reveal tap. See buildReadingStage.
+  //
+  // A consequence handled explicitly: with real (asymmetric) compositions
+  // and the characters pulled close, the two boxes now OVERLAP a little —
+  // a composite's full picture can extend behind the neighbouring plain
+  // character. That's fine and intended (the picture is a 20%-opacity
+  // backdrop), but stacking order matters: buildReadingStage gives
+  // composite boxes a LOWER z-index than plain/text boxes, so a faded
+  // picture always passes BEHIND the neighbour's full-opacity character,
+  // never tints over it.
+  //
+  // TUNING (all safe to change freely — none can crop a picture or
+  // reintroduce a reveal jump):
+  //   READING_CHAR_GAP_FRACTION — the gap between the two characters'
+  //     facing ink edges, as a fraction of screen width. THE closeness
+  //     knob. Lower = closer (pictures pass further behind each other),
+  //     higher = further apart.
+  //   READING_STAGE_WIDTH_FRACTION / READING_STAGE_HEIGHT_FRACTION (further
+  //     down, by the other layout constants) — how much of the screen the
+  //     mascot pair may use. Raising them makes everything (characters +
+  //     full pictures) proportionally bigger.
+  //   READING_CHAR_SCALE — optional per-letter nudge (scales that letter's
+  //     whole box, i.e. its character AND its full picture together) if the
+  //     automatic ink-bbox match still leaves the pair looking uneven to
+  //     the eye — same spirit as the hand-set `origin` constants on anchor
+  //     elements. Because it scales the plain and composite states
+  //     identically, it can never reintroduce a reveal jump, and because
+  //     it scales the box rather than the crop, it can never cut off the
+  //     picture.
+  //
+  // PULSE ORIGIN: with the character no longer at the window's center, the
+  // pulse must not scale about the box center (that would sweep the
+  // character sideways — the old arrow-era drift). buildReadingBox sets
+  // each character/overlay img's transform-origin to the character's
+  // measured ink center within the window, so the pulse expands in place
+  // in both states, exactly as before.
+  //
+  // This deck runs over https via GitHub Pages, where reading pixel data
+  // back out of a same-origin canvas is allowed, so the ink bounds can be
+  // detected automatically instead of hand-tuned per asset.
+  const READING_CHAR_SCALE = { sa: 1, ba: 1, ka: 0.55, na: 0.55 }; // per-letter hand nudge, edit freely (missing keys default to 1 — see buildReadingStage). Ka and Na are both scaled down together (same value) so their on-screen ink height stays equal (on-screen ink height = K * SCALE_letter, independent of that letter's own ink-to-canvas ratio — equal SCALE values is what keeps the two characters reading as "the same size" to a child, which matters more here than their boxes/full-picture canvases matching in footprint; Noam: boxes/pictures differing in size is fine, the characters must not). 0.55 was chosen to match Ka's already-approved on-screen size after the pair-spacing fix; Na was brought down to meet it.
+  // Per-PAIR nudges for the mascot ("character") round only, keyed by
+  // "rightId|leftId" — for when the automatic ink-edge gap (always exactly
+  // READING_CHAR_GAP_FRACTION, provably, regardless of source art) still
+  // reads as too tight or off-center for a specific pair. This happens with
+  // thin single-stroke sketches (Ka/Na) in a way it didn't for Sa/Ba's
+  // fuller mascot art: each letter's ink sits at a different position
+  // *within its own canvas*, so centering the two full canvases doesn't
+  // reliably center the two letters' actual visible ink. Missing keys
+  // default to 0 (no change) — Sa/Ba's pair key was never added, so their
+  // approved geometry is untouched.
+  // Per-letter horizontal nudge for the ENTIRE per-letter story loop
+  // (buildCycleFrames' `${id}-character`, `${id}-picture`, every
+  // `${id}-anchor-*`/`${id}-redrill-*` frame, and the recall prompt/answer
+  // pair — every frame whose id starts with this letter and renders
+  // through buildCompositeStage). Each of these frames centers its own
+  // PNG's full 700x700 canvas on screen; for Sa/Ba/Na the ink happens to
+  // sit close enough to the canvas's own horizontal middle that this reads
+  // as centered, but Ka's sketch sits far over to one side of ITS canvas
+  // (ink bbox center at ~82% of canvas width), so centering the canvas
+  // leaves Ka visibly off-center on screen. Fraction is of the stage's own
+  // rendered width, computed from each PNG's real ink bbox (Python/PIL,
+  // alpha>10 threshold) so it scales correctly at any screen size.
+  //
+  // CORE INVARIANT — do not apply this to only some of a letter's frames:
+  // the character sketch shown alone in `${id}-character` is the SAME ink
+  // shape hand-registered into the full picture (e.g. Ka's two strokes
+  // ARE the rhino's ear + horn in karnaf_picture) — Noam: "Ka, the
+  // character, and the picture are always perfectly aligned pixel to
+  // pixel." Both PNGs share one canvas/registration, so identical
+  // block-centering keeps them aligned automatically; shifting only one
+  // of them (as an earlier pass here mistakenly did, only touching
+  // solo-character) breaks that alignment the instant the picture reveals.
+  // Applied as one shared step in renderFrame (search
+  // applyStoryLoopCenterShift) so every current and future frame kind that
+  // goes through buildCompositeStage picks it up automatically — adding a
+  // letter here is enough, no per-case wiring needed or to remember.
+  //
+  // Pa/Ra measured the same way ahead of time (Noam asked to keep centering
+  // consistent from the start rather than fix it after the fact like Ka/Na
+  // needed): Pa's wing-sketch ink bbox center sits at 69% of its canvas
+  // width, Ra's smoke-sketch at 34% — both meaningfully off-center (in the
+  // same range that got Ka fixed), so both get a shift here: -0.19 for Pa,
+  // +0.16 for Ra. Formula is just shift = 0.5 - (ink_center / canvas_width)
+  // for whichever direction reduces that letter's own deviation to ~0.
+  const STORY_LOOP_CENTER_SHIFT = { ka: -0.32, na: -0.02, pa: -0.19, ra: 0.16 };
+  const READING_CHAR_GAP_EXTRA = { 'ka|na': 0.03, 'pa|ra': 0.03 }; // extra gap fraction, added on top of READING_CHAR_GAP_FRACTION, between a pair's facing ink edges — Noam: spread them apart more so the eye can land on each one separately. Measured: Pa/Ra's default (unextended) gap is pixel-identical to Sa/Ba's own default gap (both ~66.7px on a 1333px-wide stage — this constant guarantees an absolute-pixel gap regardless of which letters are in play), yet Noam still read it as tighter than the Ka/Na and Sa/Ba reference screenshots he sent — Pa's wing and Ra's smoke shapes apparently read as visually "closer" than their ink bounding boxes are. Reusing Ka/Na's exact extra (rather than inventing a new number) keeps the two "spread" pairs consistent with each other, per Noam's own "consistency always" note elsewhere in this session. The pair stays centered regardless of this value — shiftX below always re-centers the union of the boxes after the gap is applied, so widening the gap can't push the pair off-center.
+  const READING_CHAR_CENTER_SHIFT = { 'ka|na': -0.075 }; // fraction of screen width to shift the whole Ka+Na pair left — Noam: treat the LETTERS round as "zero" and land the characters as close to that same spot as possible, so the transition from character to letter reads as the same object, not a jump. Measured off Noam's own overlay comparison (characters screenshot laid over the letters screenshot): Ka's ink wanted to move left by more than Na's, so this is the average of the two — an exact match isn't possible with one shared shift (per Noam: doesn't need to land on the pixel).
+  // fraction of screen height to shift a pair DOWN, same "land on the
+  // letters" reasoning as the horizontal shift above, just on the Y axis.
+  // Missing keys default to 0 — Sa/Ba never needed this and stay
+  // untouched. Pa/Ra's natural y0 (no shift) measured at ~273px on a
+  // 781px-tall stage vs. Sa/Ba's and Ka/Na's own y0 landing at ~397px —
+  // Noam: bring Pa/Ra down to sit where the other two pairs already do.
+  // (273 + 0.16*781 ≈ 398, matching). If the picture underneath ends up
+  // partly clipped by the stage edge at this position, that's fine, per
+  // Noam — the shift is the fix, not a smaller/cropped image.
+  const READING_CHAR_VERTICAL_SHIFT = { 'ka|na': 0.06, 'pa|ra': 0.16 };
+  // letterId -> measurements of where that letter's character sits within
+  // its window, taken off the real pixels when the window is computed (see
+  // getReadingWindow). All in window coordinates:
+  //   size          window canvas size
+  //   ink           character ink bbox longest side
+  //   cx, cy        character ink center
+  //   left, right   character ink bbox min/max X
+  // buildReadingStage reads this synchronously to place/size each box, and
+  // buildReadingBox reads it for the pulse's transform-origin.
+  const readingMetricsCache = new Map();
+  function readingMetrics(letterId) {
+    return readingMetricsCache.get(letterId) || null;
+  }
+  // Sets a character/overlay img's pulse transform-origin to the
+  // character's measured ink center (the character is NOT at the window
+  // center anymore, so the default center origin would sweep it sideways
+  // while pulsing). Metrics are warm from page load in practice; the
+  // promise fallback covers the first moments after boot.
+  function applyCharPulseOrigin(imgEl, letterId) {
+    const set = (m) => {
+      if (m) imgEl.style.transformOrigin = `${(m.cx / m.size) * 100}% ${(m.cy / m.size) * 100}%`;
+    };
+    const m = readingMetrics(letterId);
+    if (m) set(m);
+    else getReadingWindow(letterId).then(() => set(readingMetrics(letterId)));
+  }
+  function computeInkBBoxPixels(imgEl) {
+    try {
+      const w = imgEl.naturalWidth, h = imgEl.naturalHeight;
+      if (!w || !h) return null;
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(imgEl, 0, 0);
+      const data = ctx.getImageData(0, 0, w, h).data;
+      let minX = w, minY = h, maxX = 0, maxY = 0, found = false;
+      const step = 2; // every other pixel — plenty precise for this, much faster
+      for (let y = 0; y < h; y += step) {
+        for (let x = 0; x < w; x += step) {
+          if (data[(y * w + x) * 4 + 3] > 10) {
+            found = true;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (!found) return null;
+      return { minX, minY, maxX, maxY };
+    } catch (e) {
+      return null; // canvas blocked for some reason — falls back to unadjusted rendering
+    }
+  }
+  function loadImageForCrop(src) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+  }
+  function cropImageToWindow(img, win) {
+    if (!img || !win) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = win.canvasSize;
+    canvas.height = win.canvasSize;
+    const ctx = canvas.getContext('2d');
+    try {
+      // Source rectangle is centered on the window's own center; any part of
+      // it that falls outside the original image's bounds is simply left
+      // transparent by drawImage — exactly the padding we want.
+      ctx.drawImage(img, win.cx - win.canvasSize / 2, win.cy - win.canvasSize / 2, win.canvasSize, win.canvasSize, 0, 0, win.canvasSize, win.canvasSize);
+      return canvas.toDataURL();
+    } catch (e) {
+      return null; // tainted canvas or similar — falls back to unadjusted rendering
+    }
+  }
+
+  // CROP CACHES — ONE window per LETTER, one cropped data URL per
+  // (letter, image) pair. A letter's plain character and its composite
+  // overlay resolve to the SAME pair, so they share one cache entry —
+  // pixel-identity between the two states is structural, not a coincidence
+  // of matching math.
+  // Guards the "measurements not ready yet, re-render once they land"
+  // fallback paths in buildReadingStage below: without this, a genuinely
+  // failed measurement (e.g. a missing/broken image asset — 404, bad path)
+  // resolves its cache promise to null forever, and re-rendering on an
+  // already-resolved promise fires its .then() as an immediate microtask —
+  // with no real async gap, that becomes an infinite same-tick render loop
+  // that freezes the tab. Each frame gets exactly one retry; if metrics
+  // still aren't there after that, it just keeps the fallback layout.
+  const readingRetriedFrames = new Set(); // frame id -> already retried once
+  const readingWindowCache = new Map(); // letterId -> Promise<window|null>
+  function getReadingWindow(letterId) {
+    if (!readingWindowCache.has(letterId)) {
+      const L = LETTERS[letterId];
+      readingWindowCache.set(letterId, Promise.all([
+        loadImageForCrop(L.characterImg),
+        loadImageForCrop(L.pictureImg),
+      ]).then(([charImg, picImg]) => {
+        if (!charImg) return null;
+        const bbox = computeInkBBoxPixels(charImg);
+        if (!bbox) return null;
+        // The window IS the picture's own canvas (see the READING WINDOW
+        // comment): centered on the canvas center, sized to its longest
+        // side — for the project's square assets, literally "no crop".
+        // Canvas dims are read off the actually-loaded picture, falling
+        // back to the character's canvas (same coordinate space per the
+        // project's asset convention) if the picture file is missing.
+        const ref = picImg || charImg;
+        const W = ref.naturalWidth, H = ref.naturalHeight;
+        const canvasSize = Math.max(1, Math.max(W, H));
+        const cx = W / 2, cy = H / 2;
+        // Character position measurements, published in WINDOW coordinates
+        // for buildReadingStage / applyCharPulseOrigin (for square assets
+        // the offsets are zero and window coords == source coords).
+        const offX = (canvasSize - W) / 2;
+        const offY = (canvasSize - H) / 2;
+        readingMetricsCache.set(letterId, {
+          size: canvasSize,
+          ink: Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY) || 1,
+          cx: (bbox.minX + bbox.maxX) / 2 + offX,
+          cy: (bbox.minY + bbox.maxY) / 2 + offY,
+          left: bbox.minX + offX,
+          right: bbox.maxX + offX,
+        });
+        return { cx, cy, canvasSize };
+      }));
+    }
+    return readingWindowCache.get(letterId);
+  }
+  const croppedImageCache = new Map(); // "letterId|imgSrc" -> Promise<dataURL|null>
+  function getReadingCroppedImage(letterId, imgSrc) {
+    const key = `${letterId}|${imgSrc}`;
+    if (!croppedImageCache.has(key)) {
+      croppedImageCache.set(key, Promise.all([getReadingWindow(letterId), loadImageForCrop(imgSrc)])
+        .then(([win, img]) => cropImageToWindow(img, win)));
+    }
+    return croppedImageCache.get(key);
+  }
+  // Fills an already-in-the-DOM <img> once its cropped version is ready.
+  // Nothing shifts when this resolves — the img has no content until then,
+  // so there's no "before" state to jump from. If the crop pipeline fails
+  // (missing file, blocked canvas), falls back to the raw uncropped src so
+  // the slot is never left blank.
+  function applyReadingCrop(imgEl, spec, imgSrc) {
+    getReadingCroppedImage(spec.letter, imgSrc).then((dataUrl) => {
+      imgEl.src = dataUrl || imgSrc;
+    });
+  }
+
+  // LETTER-GLYPH WINDOW/METRICS — the real-letters round's own measurement
+  // system, deliberately kept SEPARATE from readingWindowCache/
+  // readingMetricsCache above (different Maps, different functions) so
+  // nothing here can ever touch or regress the proven mascot pipeline.
+  //
+  // These are pre-rendered PNGs (Noam's Photoshop file, Noto Sans Hebrew),
+  // one letter + its niqqud baked into one flat image, all on the same
+  // 700x700 canvas (his own convention, built to match this deck's
+  // "consistent canvas size, ink found automatically" pattern). There's
+  // only one image per letter here — no separate "picture" to guarantee
+  // full display of — so the window is trivially the glyph's own full
+  // native canvas: same "no crop, ever" idea as the mascot picture window,
+  // just with nothing else to compare it to.
+  //
+  // The reference point is NOT the ink center (unlike the mascot system):
+  // Noam built every glyph file around a fixed vertical anchor — the kamatz
+  // mark sits at the same relative spot in every file — and said so
+  // directly: "my point of reference is the kamatz sign, that will be the
+  // zero." Measuring the combined ink bbox (letter + kamatz together, since
+  // they're both just non-transparent pixels in one flat file) and using
+  // its BOTTOM edge as the shared baseline is what actually honors that:
+  // it lets a tall letter (Lamed's ascender) and a short one sit on the
+  // same line while still reflecting their real, different heights, the
+  // same way printed Hebrew text uses a baseline.
+  const letterMetricsCache = new Map(); // letterId -> { size, cx, top, bottom, left, right }
+  const letterWindowCache = new Map();  // letterId -> Promise (resolved once measured)
+  function getLetterWindow(letterId) {
+    if (!letterWindowCache.has(letterId)) {
+      const L = LETTERS[letterId];
+      letterWindowCache.set(letterId, loadImageForCrop(L.letterImg).then((img) => {
+        if (!img) return null;
+        const bbox = computeInkBBoxPixels(img);
+        if (!bbox) return null;
+        const size = Math.max(1, Math.max(img.naturalWidth, img.naturalHeight));
+        letterMetricsCache.set(letterId, {
+          size,
+          top: bbox.minY,
+          bottom: bbox.maxY,
+          cx: (bbox.minX + bbox.maxX) / 2,
+          left: bbox.minX,
+          right: bbox.maxX,
+        });
+        return true;
+      }));
+    }
+    return letterWindowCache.get(letterId);
+  }
+  function letterMetrics(letterId) {
+    return letterMetricsCache.get(letterId) || null;
+  }
+  // Pulse transform-origin for a letter image: the combined letter+kamatz
+  // ink center (not the baseline, not the box center) — same reasoning as
+  // applyCharPulseOrigin above, so the pulse expands in place instead of
+  // sweeping sideways.
+  function applyLetterPulseOrigin(imgEl, letterId) {
+    const set = (m) => {
+      if (m) imgEl.style.transformOrigin = `${(m.cx / m.size) * 100}% ${((m.top + m.bottom) / 2 / m.size) * 100}%`;
+    };
+    const m = letterMetrics(letterId);
+    if (m) set(m);
+    else getLetterWindow(letterId).then(() => set(letterMetrics(letterId)));
+  }
+
+  // Pulls every image src a frame references, whatever shape that frame is —
+  // including reading-pair's per-side slot specs (character/composite/
+  // letter-image slots carry image srcs).
+  function collectFrameSrcs(f) {
+    const srcs = [].concat(f.img || [], f.imgs || []);
+    if (f.kind === 'reading-pair' || f.kind === 'word-reveal') {
+      [f.sa, f.ba].forEach((slot) => {
+        if (!slot) return;
+        if (slot.type === 'composite') srcs.push(slot.base, slot.overlay);
+        else if (slot.type === 'character') srcs.push(slot.src);
+        else if (slot.type === 'letter-image') {
+          srcs.push(LETTERS[slot.letter].letterImg);
+          // A silent companion letter (Aleph for Ba, He for Na) always
+          // rides along with its host letter's letter-image — read
+          // generically off the LETTERS data (see silentCompanion above)
+          // so every chapter's letters round warms/preloads correctly.
+          const companion = LETTERS[slot.letter] && LETTERS[slot.letter].silentCompanion;
+          if (companion) srcs.push(LETTERS[companion].letterImg);
+        }
+      });
+    }
+    if (f.kind === 'sentence-reading') {
+      // All 6 taught letters + all 3 silent companions used in the final
+      // sentence row (see SENTENCE_LAYOUT, defined later near
+      // buildSentenceStage — listed by id directly here rather than
+      // referenced, since this function runs at page load, before that
+      // later const has been evaluated), regardless of which one (if any)
+      // is pulsing this particular frame — the geometry never changes
+      // across a tap, so every glyph is always on screen.
+      ['sa', 'ba', 'ka', 'na', 'pa', 'ra', 'aleph', 'he'].forEach((id) => srcs.push(LETTERS[id].letterImg));
+    }
+    return srcs.filter(Boolean);
+  }
+  function preloadAllImages(allFrames) {
+    const seen = new Set();
+    allFrames.forEach((f) => {
+      collectFrameSrcs(f).forEach((src) => {
+        if (src && !seen.has(src)) {
+          seen.add(src);
+          const preloadEl = new Image();
+          // Explicit high priority — otherwise Chromium's own heuristics can
+          // quietly rank a detached, never-appended Image() as low-priority
+          // "probably not needed soon," letting it sit queued behind the much
+          // larger video fetches below even though, unlike the videos, EVERY
+          // one of these small picture/letter images can be needed within
+          // the next few taps. Confirmed via network timing that individual
+          // fetches of these files are fast (well under 100ms) in isolation,
+          // so a visible pop-in on a real (imperfect) connection means
+          // request PRIORITY, not raw bandwidth, was the bottleneck.
+          preloadEl.fetchPriority = 'high';
+          preloadEl.onload = () => {
+            imageDims.set(src, { w: preloadEl.naturalWidth, h: preloadEl.naturalHeight });
+          };
+          preloadEl.src = src;
+        }
+      });
+    });
+  }
+  preloadAllImages(frames);
+  // Videos are heavy relative to everything else in the deck, and each
+  // video-reveal frame (saba-reveal, kana-reveal, para-reveal, sentence-
+  // reveal) only creates its <video> element when the person actually taps
+  // into that exact frame — far too late to start the download. Instead,
+  // fire off a hidden <video preload="auto"> for every unique video src the
+  // WHOLE deck uses, right at page load, so the browser's own HTTP cache has
+  // already fetched the bytes in the background (while the child is still
+  // working through letters, minutes earlier) by the time each reveal frame
+  // builds its real <video> element with the same src. Muted + display:none
+  // so nothing is seen or heard; never appended visibly, never played.
+  // A hidden <video preload="auto"> element was tried first here, but Chrome
+  // deliberately throttles preloading for video elements that are
+  // display:none / never played — confirmed by measurement: readyState and
+  // networkState never progressed past "loading" even 5+ seconds after
+  // being added, and no byte transfer showed up in the network log. A plain
+  // fetch() has no such throttling — it downloads the file into the
+  // browser's ordinary HTTP cache (GitHub Pages serves these with
+  // cache-control: max-age=600, comfortably longer than it takes a child to
+  // work through the rest of the deck), so the real <video> element each
+  // reveal frame builds later, with the same src, gets served from cache
+  // instantly instead of hitting the network cold.
+  function preloadAllVideos(allFrames) {
+    if (typeof fetch !== 'function') return; // defensive: every real target browser has fetch
+    const seen = new Set();
+    allFrames.forEach((f) => {
+      const src = f.video;
+      if (!src || seen.has(src)) return;
+      seen.add(src);
+      // priority: 'low' — each video is the single biggest thing this page
+      // ever downloads, and each is only needed once, minutes into the
+      // session. Left at default priority, these can crowd out the much
+      // smaller, much-sooner-needed picture/letter images fired off just
+      // above, causing exactly the kind of "it takes a second to pop in"
+      // stall reported on the Sal picture frame. Fetch Priority API
+      // (Chrome 101+, ignored harmlessly elsewhere).
+      fetch(src, { credentials: 'omit', priority: 'low' }).catch(() => {});
+    });
+  }
+  preloadAllVideos(frames);
+  // BACKGROUND_GROUPS' images are applied on-demand (see the BACKGROUND
+  // GROUPS MODULE further down) — only the FIRST group's image is showing
+  // from page load, so every later group's image would otherwise sit
+  // completely un-fetched until the exact moment its chapter boundary is
+  // crossed, popping in cold. Warm every group's image into the browser's
+  // HTTP cache right away, same low-priority fetch()-not-<img> treatment as
+  // the videos above (also heavy-ish, also not needed for several minutes).
+  function preloadAllBackgrounds(groups) {
+    if (typeof fetch !== 'function') return;
+    groups.forEach((g) => {
+      fetch(g.src, { credentials: 'omit', priority: 'low' }).catch(() => {});
+    });
+  }
+  // Warms readingWindowCache/croppedImageCache for every reading-pair slot
+  // AT PAGE LOAD, before the person ever taps into that phase. Confirmed by
+  // direct measurement: without this, the FIRST time a given crop is needed
+  // each page load, its <img> genuinely sits blank (src="", naturalWidth=0)
+  // for 40-60ms while the crop canvas work runs, THEN pops in fully formed —
+  // a real, reproducible blank-then-pop, not a position bug. This makes that
+  // one-time cost happen silently in the background at load, so every crop
+  // is already sitting in cache before it's ever needed on screen.
+  function precomputeReadingPairAssets(allFrames) {
+    let sentenceWarmed = false;
+    allFrames.forEach((f) => {
+      if (f.kind === 'sentence-reading' && !sentenceWarmed) {
+        // Same 8-id list as collectFrameSrcs above (and the same reason it's
+        // spelled out here rather than reading SENTENCE_LAYOUT — that const
+        // is declared later, near buildSentenceStage, after this runs).
+        ['sa', 'ba', 'ka', 'na', 'pa', 'ra', 'aleph', 'he'].forEach((id) => getLetterWindow(id));
+        sentenceWarmed = true;
+      }
+      if (f.kind !== 'reading-pair' && f.kind !== 'word-reveal') return;
+      [f.sa, f.ba].forEach((spec) => {
+        if (!spec) return;
+        if (spec.type === 'composite') {
+          getReadingCroppedImage(spec.letter, spec.base);
+          getReadingCroppedImage(spec.letter, spec.overlay);
+        } else if (spec.type === 'character') {
+          getReadingCroppedImage(spec.letter, spec.src);
+        } else if (spec.type === 'letter-image') {
+          getLetterWindow(spec.letter);
+          const companion = LETTERS[spec.letter] && LETTERS[spec.letter].silentCompanion;
+          if (companion) getLetterWindow(companion);
+        }
+      });
+    });
+  }
+  precomputeReadingPairAssets(frames);
+
+  let index = 0;
+  const contentEl = document.getElementById('content');
+  const hudEl = document.getElementById('hud');
+  const frameIdEl = document.getElementById('frame-id');
+
+  // ---------------------------------------------------------------------
+  // UI OVERLAY LAYER — #ui-overlay (see the "LOCKED DESIGN DECISION" CSS
+  // comment). Lives outside #stage/#content entirely, so nothing here can
+  // ever touch the teaching-phase frame system, and the teaching-phase
+  // rect math can never be disturbed by anything added here. First (and
+  // for now only) resident: a small confetti fountain for the saba-reveal
+  // celebration. Self-contained canvas + requestAnimationFrame loop, no
+  // external library — kept deliberately modest (one burst, ~70 pieces,
+  // a couple of seconds), per Noam: "keeping it small, not too many
+  // pyrotechnics."
+  // ---------------------------------------------------------------------
+  // CAPTION MODULE — second resident of #ui-overlay. Fully self-contained:
+  // owns its own CAPTIONS data, grabs its own elements. Chains onto
+  // whatever MOMENTS.onFrameRendered already was (see the chaining note
+  // below the BACKGROUND HUE MODULE) rather than overwriting it, so any
+  // number of these UI-layer modules can coexist — deleting this whole
+  // block (plus the #caption-bar markup/CSS) just removes this one link;
+  // every other module keeps working, and if this were the only one, it
+  // cleanly falls back to being a no-op again.
+  //
+  // CAPTIONS[frameId] = 'subtitle text'. Leave unset (or '') for silence —
+  // the bar hides itself completely (see .caption-bar--empty) rather than
+  // showing an empty dark strip. Press "i" while viewing the deck to see
+  // each frame's id in the top-left corner, so you know which id to paste
+  // text against.
+  const CAPTIONS = {
+    // 'sa-character': 'Hi, I\'m Sa!',
+  };
+  const captionEl = document.getElementById('caption-text');
+  const captionBarEl = document.getElementById('caption-bar');
+  {
+    const previousOnFrameRendered = MOMENTS.onFrameRendered;
+    MOMENTS.onFrameRendered = (frame) => {
+      previousOnFrameRendered(frame);
+      const text = CAPTIONS[frame.id] || '';
+      captionEl.textContent = text;
+      captionBarEl.classList.toggle('caption-bar--empty', !text);
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // BACKGROUND GROUPS MODULE — third resident, lives entirely against
+  // #bg-layer (see the CSS comment above #bg-layer). TEST RIG for chapter-
+  // scoped background art: each entry below names the LAST frame id in a
+  // stretch of the deck, paired with the image that whole stretch (from
+  // the previous entry's boundary, exclusive, through this one, inclusive)
+  // should show. Frames past the final listed boundary keep showing that
+  // last group's image — no entry needed for "the rest of the deck."
+  //
+  // Deliberately NOT keyed to "Sa/Ba" or "Ka/Na" by name — reassign any
+  // stretch to any image any time by editing this list, e.g. add a third
+  // entry once a third background exists, or move a boundary earlier/later
+  // by pointing `through` at a different frame id. Resolution is by frame
+  // INDEX (looked up once below), not by direction of travel, so it's
+  // correct whether the learner is tapping forward, going back, or a
+  // resize forces a re-render on the same frame.
+  //
+  // Delete this whole block and #bg-layer just shows nothing (transparent,
+  // background-color: var(--paper) on <body> shows through) — nothing
+  // else here depends on it.
+  // ---------------------------------------------------------------------
+  const bgLayerEl = document.getElementById('bg-layer');
+  // Single universal background now — new-bg-01-2400x1560.png is the art
+  // that actually matches the new game-board/stage design (the round stone
+  // platform the dragon stands on, the crystal/lantern pedestals framing
+  // it), so it replaces the old two chapter-scoped BG-01/BG-02 images for
+  // the whole deck rather than sitting alongside them. The multi-entry
+  // chapter-scoping mechanism below still works exactly as before if a
+  // second/third background ever comes back — just add more entries.
+  const BACKGROUND_GROUPS = [
+    { through: 'saba-reveal', src: 'assets/new-bg-01-2400x1560.jpg' },
+  ];
+  preloadAllBackgrounds(BACKGROUND_GROUPS);
+  const backgroundBoundaryIndices = BACKGROUND_GROUPS.map(
+    (g) => frames.findIndex((f) => f.id === g.through)
+  );
+  function backgroundSrcForIndex(idx) {
+    for (let i = 0; i < BACKGROUND_GROUPS.length; i++) {
+      if (backgroundBoundaryIndices[i] !== -1 && idx <= backgroundBoundaryIndices[i]) {
+        return BACKGROUND_GROUPS[i].src;
+      }
+    }
+    return BACKGROUND_GROUPS[BACKGROUND_GROUPS.length - 1].src;
+  }
+  let lastAppliedBgSrc = null;
+  {
+    const previousOnFrameRendered = MOMENTS.onFrameRendered;
+    MOMENTS.onFrameRendered = (frame) => {
+      previousOnFrameRendered(frame);
+      const src = backgroundSrcForIndex(window.SabaDeck.index);
+      if (src !== lastAppliedBgSrc) {
+        bgLayerEl.style.backgroundImage = `url('${src}')`;
+        lastAppliedBgSrc = src;
+      }
+    };
+  }
+
+  const confettiCanvas = document.getElementById('confetti-canvas');
+  const confettiCtx = confettiCanvas.getContext && confettiCanvas.getContext('2d');
+  let confettiParticles = [];
+  let confettiRafId = null;
+
+  function resizeConfettiCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    confettiCanvas.width = Math.round(window.innerWidth * dpr);
+    confettiCanvas.height = Math.round(window.innerHeight * dpr);
+    if (confettiCtx) confettiCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resizeConfettiCanvas);
+  resizeConfettiCanvas();
+
+  const CONFETTI_COLORS = ['#ff5a5f', '#ffb400', '#2ecc71', '#3498db', '#9b59b6', '#ff8fab'];
+
+  // Fountain, not a wall — mostly-upward cone of velocities, real gravity,
+  // fades out as each piece nears the end of its own lifespan. The
+  // requestAnimationFrame loop below stops itself the instant every
+  // particle has expired (filtered out, array empties, no reschedule) —
+  // it can't run forever regardless of how burstConfetti gets called.
+  // `opts` is optional — {count, sizeMin, sizeSpread} — defaults match the
+  // original saba/kana/para-reveal burst exactly, so existing call sites
+  // are untouched. Added so the delight bar's small per-notch pops (see
+  // "DELIGHT BAR MODULE" below) can reuse this same engine at a much
+  // smaller scale instead of duplicating it.
+  function burstConfetti(originX, originY, opts) {
+    if (!confettiCtx) return;
+    const count = (opts && opts.count) || 70;
+    const sizeMin = (opts && opts.sizeMin) || 5;
+    const sizeSpread = (opts && opts.sizeSpread) || 5;
+    for (let i = 0; i < count; i++) {
+      const angle = (-Math.PI / 2) + (Math.random() - 0.5) * (Math.PI * 0.9);
+      const speed = 4 + Math.random() * 7;
+      confettiParticles.push({
+        x: originX, y: originY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: sizeMin + Math.random() * sizeSpread,
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 0.3,
+        life: 0,
+        maxLife: 90 + Math.random() * 30,
+      });
+    }
+    if (!confettiRafId) confettiRafId = requestAnimationFrame(stepConfetti);
+  }
+
+  function stepConfetti() {
+    const gravity = 0.18;
+    confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+    confettiParticles = confettiParticles.filter((p) => p.life < p.maxLife);
+    confettiParticles.forEach((p) => {
+      p.vy += gravity;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rotation += p.rotationSpeed;
+      p.life += 1;
+      confettiCtx.save();
+      confettiCtx.globalAlpha = Math.max(0, 1 - p.life / p.maxLife);
+      confettiCtx.translate(p.x, p.y);
+      confettiCtx.rotate(p.rotation);
+      confettiCtx.fillStyle = p.color;
+      confettiCtx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+      confettiCtx.restore();
+    });
+    if (confettiParticles.length > 0) {
+      confettiRafId = requestAnimationFrame(stepConfetti);
+    } else {
+      confettiRafId = null;
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // DELIGHT BAR MODULE — fourth resident of #ui-overlay: the six per-
+  // letter completion slots, the board dragon's jump animation, and the
+  // XP counter, all three driven off one shared trigger —
+  // MOMENTS.onCycleComplete, which the build already fires once per
+  // completed letter with that letter's id as its argument (see the 'yay'
+  // frame in buildCycleFrames). Fully self-contained like every other
+  // module here.
+  //
+  // LETTER_ORDER must match the teaching order in buildDeck() — it's how
+  // this module knows which of the 6 slots belongs to which letter.
+  // ---------------------------------------------------------------------
+  const LETTER_ORDER = ['sa', 'ba', 'ka', 'na', 'pa', 'ra'];
+  const XP_PER_LETTER = 50;
+  const boardSlots = Array.from(document.querySelectorAll('.board-slot'));
+  const xpBadgeEl = document.getElementById('xp-badge');
+  const xpValueEl = document.getElementById('xp-value');
+  let xpTotal = 0;
+
+  // --- Board dragon: idle by default, jump animation on success only ---
+  // All 20 frames are built as real <img> elements once, up front, stacked
+  // on top of each other inside #board-dragon (see the CSS comment there
+  // for why: an earlier version swapped background-image per frame, which
+  // flickered in Chrome/Firefox but not Safari). Playback just toggles
+  // .dragon-frame--active between them — no image ever loads/decodes
+  // during animation, only once at page build time.
+  const boardDragonEl = document.getElementById('board-dragon');
+  const DRAGON_FRAME_COUNT = 20;
+  const dragonFrameEls = [];
+  if (boardDragonEl) {
+    for (let i = 0; i < DRAGON_FRAME_COUNT; i++) {
+      const img = document.createElement('img');
+      img.src = `assets/dragon-frames/f${String(i).padStart(2, '0')}.png`;
+      img.alt = '';
+      if (i === 0) img.classList.add('dragon-frame--active');
+      boardDragonEl.appendChild(img);
+      dragonFrameEls.push(img);
+    }
+  }
+
+  let dragonPlaying = false;
+  function playDragonJump() {
+    if (!dragonFrameEls.length || dragonPlaying) return;
+    dragonPlaying = true;
+    let f = 0;
+    const stepMs = 1000 / 10; // 10fps, matches the confirmed-good preview pacing
+    const timer = setInterval(() => {
+      dragonFrameEls[f].classList.remove('dragon-frame--active');
+      f++;
+      if (f >= DRAGON_FRAME_COUNT) {
+        clearInterval(timer);
+        dragonFrameEls[0].classList.add('dragon-frame--active'); // back to idle (f00)
+        dragonPlaying = false;
+        return;
+      }
+      dragonFrameEls[f].classList.add('dragon-frame--active');
+    }, stepMs);
+  }
+
+  function animateXpTo(target) {
+    const start = xpTotal;
+    const startTime = performance.now();
+    const DURATION = 600;
+    xpBadgeEl.classList.remove('xp-badge--pulse');
+    void xpBadgeEl.offsetWidth; // restart the CSS pulse animation on repeat triggers
+    xpBadgeEl.classList.add('xp-badge--pulse');
+    function step(now) {
+      const t = Math.min(1, (now - startTime) / DURATION);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      xpValueEl.textContent = Math.round(start + (target - start) * eased);
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+    xpTotal = target;
+  }
+
+  function celebrateLetter(letterId) {
+    const index = LETTER_ORDER.indexOf(letterId);
+    if (index === -1) return; // defensive — an id outside the 6 taught letters
+    const slot = boardSlots[index];
+    if (slot && !slot.classList.contains('board-slot--filled')) {
+      const letter = LETTERS[letterId];
+      if (letter && letter.characterImg) {
+        slot.style.backgroundImage = `url('${letter.characterImg}')`;
+      }
+      slot.classList.add('board-slot--filled');
+      const rect = slot.getBoundingClientRect();
+      burstConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2, {
+        count: 18, sizeMin: 3, sizeSpread: 3,
+      });
+      playDragonJump();
+      animateXpTo(xpTotal + XP_PER_LETTER);
+    }
+  }
+  {
+    const previousOnCycleComplete = MOMENTS.onCycleComplete;
+    MOMENTS.onCycleComplete = (letterId) => {
+      previousOnCycleComplete(letterId);
+      celebrateLetter(letterId);
+    };
+  }
+
+  function imgOrPlaceholder(src, extraClass) {
+    if (!src) {
+      const d = document.createElement('div');
+      d.className = 'placeholder' + (extraClass ? ' ' + extraClass : '');
+      d.textContent = '[image not set]';
+      return d;
+    }
+    const img = document.createElement('img');
+    if (extraClass) img.className = extraClass;
+    img.src = src;
+    img.alt = src;
+    img.onerror = function () {
+      const d = document.createElement('div');
+      d.className = 'placeholder' + (extraClass ? ' ' + extraClass : '');
+      d.textContent = `[missing: ${src}]`;
+      img.replaceWith(d);
+    };
+    return img;
+  }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  // How big the on-screen "scene" box gets, as a fraction of the available
+  // content area (which already excludes the caption bar). Turn these down
+  // to shrink everything, up to grow it — this is the one place to tune it.
+  const STAGE_WIDTH_FRACTION = 0.72;
+  const STAGE_HEIGHT_FRACTION = 0.78;
+  // Reading-pair sizing budgets (see buildReadingStage below).
+  // MASCOT rounds: each letter's box is computed from its own full-picture
+  // crop window and scaled as large as the two STAGE budgets below allow —
+  // these are THE size knobs for the mascot pair now. Height runs high on
+  // purpose: Noam pointed out the old row sat vertically centered with big
+  // empty bands above and below it, and asked for the full pictures to
+  // grow into that space (basket extending up, bottle extending down)
+  // instead of the characters shrinking to keep the pictures whole.
+  const READING_STAGE_WIDTH_FRACTION = 0.92;  // both boxes + gap, of content width
+  const READING_STAGE_HEIGHT_FRACTION = 0.88; // tallest box, of content height
+  // LETTERS round (text slots) keeps the original compact equal boxes,
+  // sized by the two fractions below — glyphs never needed the
+  // full-picture budget, and this leaves that round pixel-identical to the
+  // previously-approved version. Also the fallback mascot-box size for the
+  // brief moment before the windows have been measured (see
+  // buildReadingStage).
+  const READING_BOX_WIDTH_FRACTION = 0.2;
+  const READING_BOX_HEIGHT_FRACTION = 0.32;
+  const READING_CHAR_GAP_FRACTION = 0.05; // gap between the two CHARACTERS' facing ink edges, as a fraction of contentEl's width. This replaced the old box-edge gap (READING_GAP_FRACTION): with real asymmetric compositions, box edges said nothing about how far apart the characters LOOKED. This measures the thing Noam actually sees.
+  // LETTERS round (real Hebrew glyph PNGs) — same "how much of the screen /
+  // how close together" knobs as the mascot ones above, kept as their own
+  // constants since the two rounds are visually independent and will very
+  // likely want different values. Safe to tune freely; none of these can
+  // reintroduce a reveal jump (nothing here depends on which state a slot
+  // is in — there's only one state per letter in this round).
+  const READING_LETTER_STAGE_WIDTH_FRACTION = 0.45;  // both letters + gap, of content width
+  const READING_LETTER_STAGE_HEIGHT_FRACTION = 0.40; // tallest letter, of content height
+  const READING_LETTER_GAP_FRACTION = 0.06; // gap between the two letters' facing ink edges (not box edges — same "what the eye sees" idea as READING_CHAR_GAP_FRACTION)
+  const READING_SILENT_LETTER_GAP_FRACTION = 0.02; // a silent companion letter (Aleph, He, ...) sits close to its host letter's left side, like normal in-word letter spacing in printed Hebrew — tighter than 0.035 (Noam: move it right, closer in, to about book-like spacing) but not as tight as 0.015 (that read as touching/merged). Originally tuned for Aleph specifically; reused as-is for every chapter's silent companion.
+  // Noam overlaid a screenshot of the mascot characters/pictures on top of
+  // the letters screen: the letters group sits noticeably right of where
+  // the characters actually are, and a bit small. Measured via ink
+  // centers (1200-wide reference content box): mascot Sa/Ba ink centers
+  // sit at roughly x=686/486, the letters group's centers were sitting at
+  // x=729/576 — off by ~45-90px to the right. This shifts the whole group
+  // left by a flat fraction of content width to compensate; not derived
+  // from any per-letter ink math (deliberately — it's a simple constant
+  // nudge, easy to re-tune from a future comparison screenshot).
+  const READING_LETTER_GROUP_SHIFT_X_FRACTION = -0.05;
+  // Per-pair multiplicative correction on top of the letters round's shared
+  // fit-to-budget scale S — see where this is applied (search
+  // READING_LETTER_SCALE) for why Ka/Na's own ink proportions make the
+  // shared formula pick a bigger S than Sa/Ba's or Pa/Ra's, unprompted.
+  // Missing keys default to 1 (no change) — Sa/Ba and Pa/Ra already land in
+  // the same ballpark as each other and don't need this.
+  const READING_LETTER_SCALE = { 'ka|na': 0.8967 };
+  // FINAL SENTENCE ROUND — the last chapter, after Sa/Ba, Ka/Na, and Pa/Ra
+  // have each been taught: all 9 real letter glyphs (6 taught + 3 silent
+  // companions) laid out in one row as the actual taught sentence
+  // "סַבָּא קָנָה פָּרָה" (Saba Kana Para — "Grandfather bought a cow"), read
+  // right to left same as every word before it. Same "fit a fixed budget,
+  // one shared scale" approach as the letters round above, just generalized
+  // from 2-3 glyphs to a 9-glyph chain — see buildSentenceStage.
+  //
+  // Gaps: Noam's call after seeing the first pass — this round is meant to
+  // read as ORDINARY TEXT, not as the wide, deliberately-separated teaching
+  // layout every earlier round uses (that spacing exists specifically to
+  // let a child's eye land on one letter at a time while it's still being
+  // taught; here the letters are already known, so the sentence should look
+  // like a real word/sentence, letters touching within a word like normal
+  // Hebrew orthography, with only an ordinary word-space between words).
+  //
+  // True zero gap (tried first) placed each glyph's ink BOUNDING BOX edge
+  // flush against its neighbor's — mathematically non-overlapping, but
+  // these are hand-drawn strokes, not rectangles: a diagonal stroke near
+  // one glyph's bbox edge can sit visually right against (or read as
+  // crossing into) a neighbor's stroke near that same shared edge, even
+  // though the boxes themselves never overlap. A small but real gap avoids
+  // that crowding while still reading as ordinary in-word letter spacing,
+  // nowhere near the wide teaching-round gap. Collapsing these gaps this
+  // much (vs. the teaching round's 0.06/0.02/0.11) also shrinks the row's
+  // total width a lot, which per Noam is the point, not a side effect.
+  // 0.92 (matching the teaching rounds' width budget) read as too tight on
+  // screen once this round's spacing was tightened to read like ordinary
+  // text — Noam drew a reference border roughly 79% as wide as the row
+  // was rendering at, so this scales the whole row down to match (the row
+  // is width-bound at this budget — see buildSentenceStage — so the
+  // rendered union width tracks this fraction directly, no other constant
+  // needs to move).
+  const SENTENCE_STAGE_WIDTH_FRACTION = 0.72;  // the whole 9-glyph row, of content width
+  const SENTENCE_STAGE_HEIGHT_FRACTION = 0.40; // tallest letter, of content height — same budget as the single-word letters round
+  const SENTENCE_LETTER_GAP_FRACTION = 0.015;  // a word's own two taught letters sit close, ordinary in-word spacing, not the teaching-round gap
+  const SENTENCE_COMPANION_GAP_FRACTION = 0.01; // silent companion sits closer still against its host, same reasoning
+  const SENTENCE_WORD_GAP_FRACTION = 0.035;    // an ordinary word-space between one word and the next — enough to read as separate words, nowhere near the teaching round's gap
+  const FALLBACK_DIMS = { w: 4, h: 3 }; // used only until an image's real size is known
+
+  // Fits a box of `dims` aspect ratio inside a fraction of contentEl's box,
+  // on BOTH axes at once (unlike CSS aspect-ratio alone, which only fixes
+  // one axis and can overflow the other) — this is what guarantees the
+  // scene is always "big enough but not too big, with room to spare"
+  // regardless of whether an image is tall, wide, or square. Defaults to
+  // the solo-stage fractions; pass smaller ones (see PAIR_*_FRACTION above)
+  // when the stage has to share the row with another one.
+  function applyStageSize(stage, dims, widthFraction, heightFraction) {
+    // clientWidth/clientHeight, NOT getBoundingClientRect(): #content lives
+    // inside #board-root-back, which carries the rigid canvas's CSS
+    // transform:scale(...). getBoundingClientRect() returns the REAL,
+    // already-scaled-down screen pixels, but stage.style.width/height below
+    // are interpreted as LOCAL (pre-transform, canvas-space) pixels by that
+    // same ancestor — using the real-px rect here silently squared the
+    // scale-down (real px in, then scaled down AGAIN by the transform),
+    // rendering every mascot/glyph at roughly half its intended size.
+    // clientWidth/height are unaffected by ancestor transforms (transforms
+    // are paint-time only, not layout), so they give the correct canvas-
+    // space budget instead.
+    const rect = { width: contentEl.clientWidth, height: contentEl.clientHeight };
+    const maxW = rect.width * (widthFraction || STAGE_WIDTH_FRACTION);
+    const maxH = rect.height * (heightFraction || STAGE_HEIGHT_FRACTION);
+    const scale = Math.min(maxW / dims.w, maxH / dims.h);
+    stage.style.width = `${Math.round(dims.w * scale)}px`;
+    stage.style.height = `${Math.round(dims.h * scale)}px`;
+  }
+
+  // Builds a same-size, same-position stage for ANY canvas-scale image —
+  // character alone, plain picture, or a picture/character with one or more
+  // transparent element overlays stacked on top at 0,0 so pre-registered
+  // PNGs line up automatically. Every frame kind that shows the "scene"
+  // (character, picture, elements) goes through this ONE function so the
+  // box is always identical — that's what keeps size/position locked
+  // across every slide instead of jumping between different sizing rules.
+  // `overlaySrcs` is an array (possibly empty) applied in order, so earlier
+  // elements stay visible underneath later ones (cumulative, never swapped
+  // out). `fadeBase` dims the base image to 50% opacity in code (the
+  // re-drill look) without needing a second "-50" asset file.
+  // Caches, per image src, the "x% y%" transform-origin that sits at the
+  // center of that PNG's actual visible (non-transparent) mark — computed
+  // once by scanning pixel alpha via an offscreen canvas. Needed because
+  // each element overlay is a mostly-transparent full-canvas PNG, so
+  // scaling from the box's geometric center (the default) makes the small
+  // visible red mark appear to drift instead of growing in place.
+  // `animateSrc` + `animateOrigin`: the ONE overlay src (an element marker,
+  // never the character) that should play the pop-in scale for this tap,
+  // and the "x% y%" transform-origin to scale it from. The origin is a
+  // precomputed constant per element (see each element's `origin` field in
+  // LETTERS below) rather than detected at runtime — Chrome blocks reading
+  // pixel data back out of a canvas for file:// images (a "tainted canvas"
+  // security restriction), so scanning for the visible mark's true center
+  // in-browser isn't reliable here. Whenever an element's PNG is replaced,
+  // its `origin` should be recomputed (quick to redo, ask and it's a
+  // one-line update — no restructuring).
+  // `widthFraction`/`heightFraction`: override the default solo-stage sizing
+  // budget. (Reading-pair frames no longer go through this function — see
+  // buildReadingStage/buildReadingBox, which position their own boxes on a
+  // fixed absolute canvas instead — but the override params are left here
+  // in case a future solo-stage variant needs a different budget.)
+  function buildCompositeStage(baseSrc, overlaySrcs, fadeBase, animateSrc, animateOrigin, widthFraction, heightFraction) {
+    const stage = el('div', 'composite-stage');
+    const knownDims = baseSrc && imageDims.get(baseSrc);
+    applyStageSize(stage, knownDims || FALLBACK_DIMS, widthFraction, heightFraction);
+    const base = imgOrPlaceholder(baseSrc);
+    if (base.tagName === 'IMG') {
+      if (fadeBase) base.classList.add('faded');
+      if (!knownDims) {
+        base.onload = () => {
+          if (base.naturalWidth && base.naturalHeight) {
+            const dims = { w: base.naturalWidth, h: base.naturalHeight };
+            imageDims.set(baseSrc, dims);
+            applyStageSize(stage, dims, widthFraction, heightFraction);
+          }
+        };
+      }
+    }
+    stage.appendChild(base);
+    (overlaySrcs || []).forEach((src) => {
+      if (!src) return;
+      const overlayImg = imgOrPlaceholder(src);
+      if (src === animateSrc && overlayImg.tagName === 'IMG') {
+        overlayImg.style.transformOrigin = animateOrigin || '50% 50%';
+        overlayImg.classList.add('pop-in');
+      }
+      stage.appendChild(overlayImg);
+    });
+    return stage;
+  }
+
+  // READING-PAIR LAYOUT — built as a fixed-size absolute-position canvas,
+  // not a flexbox row. This directly mirrors how the reference Google
+  // Slides deck is actually built: Sa's box, Ba's box, and each arrow are
+  // independent objects with their own fixed coordinates, none of them
+  // able to push or resize any other (Noam pointed this out directly,
+  // looking at the bounding boxes in his own slide — the picture, the
+  // character, and the arrow are three separate positioned objects, not one
+  // box whose size depends on another). Every earlier "same row" /
+  // "grows when the arrow appears" bug came from the flexbox version
+  // computing each slot's box FROM its own content and then flowing it next
+  // to its neighbor — an absolute canvas removes that mechanism entirely:
+  // a box's position/size is set once, geometrically, from constants, and
+  // nothing about its content (plain vs composite, active vs not) can ever
+  // change it.
+  function buildReadingBox(spec, isActive) {
+    const box = el('div', 'reading-box');
+    // Stacking: composite boxes sit BELOW plain/text boxes. Boxes can
+    // overlap now that the characters are pulled close (a composite's full
+    // picture may extend behind the neighbour's slot), and this guarantees
+    // a 20%-faded picture always passes BEHIND a neighbouring
+    // full-opacity character, never tints over it.
+    box.style.zIndex = spec.type === 'composite' ? '1' : '2';
+    if (spec.type === 'text') {
+      const textEl = el('p', 'hebrew-text', spec.text);
+      if (isActive) textEl.classList.add('reading-box--pulse');
+      box.appendChild(textEl);
+      return box;
+    }
+    if (spec.type === 'letter-image') {
+      // Shown at native pixels, no crop pipeline needed — the window IS the
+      // file's own canvas (see the LETTER-GLYPH WINDOW comment), so this is
+      // just the source PNG directly, sized/positioned by buildReadingStage.
+      const L = LETTERS[spec.letter];
+      const letterImgEl = document.createElement('img');
+      letterImgEl.className = 'reading-box-img';
+      letterImgEl.alt = L.letterImg;
+      letterImgEl.src = L.letterImg;
+      applyLetterPulseOrigin(letterImgEl, spec.letter);
+      if (isActive) letterImgEl.classList.add('reading-box--pulse');
+      box.appendChild(letterImgEl);
+      return box;
+    }
+    if (spec.type === 'composite') {
+      // Two separately stacked images, NOT one flattened picture — the
+      // static faded picture underneath, and the character on top of it as
+      // its own element, so the pulse (below) can animate the character
+      // alone without the picture moving with it. Both are cropped through
+      // the IDENTICAL per-letter reading window (see the READING WINDOW
+      // comment above computeInkBBoxPixels) so they stay pixel-registered
+      // exactly as if they were still one flattened image — and since the
+      // plain-alone state uses that same window too, the character overlay
+      // here is the very same cached crop the plain state shows: only the
+      // faded picture underneath it is new.
+      const baseImg = document.createElement('img');
+      baseImg.className = 'reading-box-img faded';
+      baseImg.alt = spec.base;
+      const overlayImg = document.createElement('img');
+      overlayImg.className = 'reading-box-img';
+      overlayImg.alt = spec.overlay;
+      applyCharPulseOrigin(overlayImg, spec.letter);
+      if (isActive) overlayImg.classList.add('reading-box--pulse');
+      box.appendChild(baseImg);
+      box.appendChild(overlayImg);
+      applyReadingCrop(baseImg, spec, spec.base);
+      applyReadingCrop(overlayImg, spec, spec.overlay);
+      return box;
+    }
+    // Plain-mascot-alone: cropped through the same per-letter reading
+    // window the composite uses — identical pixels in both states, which
+    // is exactly what makes the picture-reveal jump impossible. Pair
+    // consistency between Sa and Ba comes from buildReadingStage sizing
+    // each letter's box off its own window at one shared display scale.
+    const charImg = document.createElement('img');
+    charImg.className = 'reading-box-img';
+    charImg.alt = spec.src;
+    applyCharPulseOrigin(charImg, spec.letter);
+    if (isActive) charImg.classList.add('reading-box--pulse');
+    box.appendChild(charImg);
+    applyReadingCrop(charImg, spec, spec.src);
+    return box;
+  }
+  // Places an already-built box at fixed pixel coordinates within the
+  // reading-stage — geometry only, completely independent of what's inside.
+  function positionAbsolute(node, left, top, width, height) {
+    node.style.position = 'absolute';
+    node.style.left = `${Math.round(left)}px`;
+    node.style.top = `${Math.round(top)}px`;
+    if (width != null) node.style.width = `${Math.round(width)}px`;
+    if (height != null) node.style.height = `${Math.round(height)}px`;
+  }
+  // Builds the whole reading-pair frame as one fixed canvas: Sa's box on the
+  // right, Ba's box on the left (RTL, per Hebrew reading order) — every
+  // coordinate computed once from contentEl's size and fixed constants,
+  // never from any box's content.
+  //
+  // ATTENTION CUE: an experiment, replacing the arrow entirely. Every
+  // attempt to fix a residual glitch on the arrow appearing/disappearing
+  // came up short — confirmed one real bug (a composite's image sat
+  // genuinely blank for a beat the first time it was shown) and fixed it,
+  // but couldn't rule out something below what this deck's own tools can
+  // observe. Rather than keep guessing at the arrow's timing, the active
+  // side now pulses in place (twice) instead — same content, same box,
+  // same position, no separate element being added/removed/repositioned at
+  // all. If this still shows any hint of a glitch, that tells us clearly
+  // it was never about the arrow specifically — it's the plain-to-composite
+  // content swap itself. If it's smooth, we have a working version.
+  function buildReadingStage(saSpec, baSpec, active) {
+    const stage = el('div', 'reading-stage');
+    // clientWidth/height, not getBoundingClientRect() — see the comment in
+    // applyStageSize above for why: this box's own style.width/height (and
+    // everything positioned inside it below) are canvas-space px, but
+    // getBoundingClientRect() returns already-transform-scaled real px.
+    const rect = { width: contentEl.clientWidth, height: contentEl.clientHeight };
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    stage.style.width = `${Math.round(rect.width)}px`;
+    stage.style.height = `${Math.round(rect.height)}px`;
+
+    // CHARACTER-ANCHORED PLACEMENT. The letters round (text slots) keeps
+    // the original compact equal centered boxes. Mascot rounds place each
+    // letter's box FROM the measured position of its character within its
+    // (full-canvas) window, so that on screen:
+    //
+    //   1. both characters' ink renders at the same size — one shared
+    //      scale K (screen px per source-ink px) for both letters,
+    //   2. both characters' ink centers sit on the same horizontal line,
+    //   3. the gap between Ba's right ink edge and Sa's left ink edge is
+    //      exactly READING_CHAR_GAP_FRACTION of the screen width — the
+    //      distance the eye actually reads as "how far apart they are",
+    //   4. the union of the two boxes is centered on screen, and K is the
+    //      largest value keeping that union inside the width/height
+    //      budgets.
+    //
+    // Everything is computed from per-letter measurements and constants —
+    // never from which state (plain/composite) a slot is in this frame —
+    // so no box can move or resize across a picture-reveal tap (that would
+    // be the size-jump bug again). Boxes MAY overlap (a full picture can
+    // extend behind the neighbour's character); see the z-index note in
+    // buildReadingBox for why that renders correctly.
+    const isTextFrame = saSpec.type === 'text' || baSpec.type === 'text';
+    const isLetterFrame = saSpec.type === 'letter-image' || baSpec.type === 'letter-image';
+    const fallbackSize = Math.min(rect.width * READING_BOX_WIDTH_FRACTION, rect.height * READING_BOX_HEIGHT_FRACTION);
+    // Default layout — used verbatim by the letters round, and as the
+    // pre-measurement fallback for mascot frames: the exact geometry the
+    // previously-approved version rendered (equal compact boxes, 0.025
+    // box-edge gap, centered).
+    const defaultGap = rect.width * 0.025;
+    let saSize = fallbackSize, baSize = fallbackSize;
+    let saLeft = centerX + defaultGap / 2;
+    let baLeft = centerX - defaultGap / 2 - fallbackSize;
+    let saTop = centerY - fallbackSize / 2, baTop = centerY - fallbackSize / 2;
+    // A silent companion letter (Aleph for chapter 1's Ba, He for chapter
+    // 2's Na — see LETTERS[x].silentCompanion) only ever renders on letter
+    // frames whose left-slot letter actually has one (see isLetterFrame
+    // branch below) — starts hidden/zero-sized, never shown unless real
+    // geometry is computed for it.
+    let companionLeft = 0, companionTop = 0, companionSize = 0, showCompanion = false;
+    const companionId = LETTERS[baSpec.letter] && LETTERS[baSpec.letter].silentCompanion;
+    // Generic over any two letters (not just literally 'sa'/'ba') — reads
+    // whichever letter ids are actually in the two slots this call was
+    // given, so the exact same function/math serves chapter 1 and every
+    // chapter after it.
+    const mSa = readingMetrics(saSpec.letter);
+    const mBa = readingMetrics(baSpec.letter);
+    const lSa = letterMetrics(saSpec.letter);
+    const lBa = letterMetrics(baSpec.letter);
+    const lCompanion = companionId ? letterMetrics(companionId) : null;
+    if (!isTextFrame && !isLetterFrame && mSa && mBa) {
+      // Per-K scale factors (s_L = K * sPerK_L): equal on-screen ink for
+      // both letters, with the optional per-letter hand nudge folded in.
+      const sSaPerK = (READING_CHAR_SCALE[saSpec.letter] || 1) / mSa.ink;
+      const sBaPerK = (READING_CHAR_SCALE[baSpec.letter] || 1) / mBa.ink;
+      const pairKey = `${saSpec.letter}|${baSpec.letter}`;
+      const gapPx = rect.width * (READING_CHAR_GAP_FRACTION + (READING_CHAR_GAP_EXTRA[pairKey] || 0));
+      const widthBudget = rect.width * READING_STAGE_WIDTH_FRACTION;
+      const heightBudget = rect.height * READING_STAGE_HEIGHT_FRACTION;
+
+      // Height bound: characters share a baseline, so the union's height
+      // is (largest rise above the baseline) + (largest drop below it).
+      const upPerK = Math.max(mSa.cy * sSaPerK, mBa.cy * sBaPerK);
+      const downPerK = Math.max((mSa.size - mSa.cy) * sSaPerK, (mBa.size - mBa.cy) * sBaPerK);
+      let K = heightBudget / (upPerK + downPerK);
+
+      // Width bound (exact): with Ba's box tentatively at x = 0, every box
+      // edge is (a * K + g) with g ∈ {0, gapPx}; the union's width is the
+      // max over (rightEdge - leftEdge) pairs, so bounding every pair
+      // bounds the union.
+      const saLeftA = mBa.right * sBaPerK - mSa.left * sSaPerK; // sa box left = saLeftA*K + gapPx
+      const edgesRight = [
+        { a: mBa.size * sBaPerK, g: 0 },            // ba box right
+        { a: saLeftA + mSa.size * sSaPerK, g: gapPx }, // sa box right
+      ];
+      const edgesLeft = [
+        { a: 0, g: 0 },              // ba box left
+        { a: saLeftA, g: gapPx },    // sa box left
+      ];
+      edgesRight.forEach((r) => edgesLeft.forEach((l) => {
+        const a = r.a - l.a;
+        const g = r.g - l.g;
+        if (a > 0 && widthBudget - g > 0) K = Math.min(K, (widthBudget - g) / a);
+      }));
+      if (!(K > 0)) K = 1; // degenerate screens only — never negative/NaN
+
+      const sSa = K * sSaPerK;
+      const sBa = K * sBaPerK;
+      saSize = mSa.size * sSa;
+      baSize = mBa.size * sBa;
+
+      // Horizontal: Ba at 0, Sa placed so the char-edge gap is exact, then
+      // shift both so the union of the boxes is centered on screen.
+      baLeft = 0;
+      saLeft = mBa.right * sBa + gapPx - mSa.left * sSa;
+      const unionLeft = Math.min(baLeft, saLeft);
+      const unionRight = Math.max(baLeft + baSize, saLeft + saSize);
+      const shiftX = (rect.width - (unionRight - unionLeft)) / 2 - unionLeft + rect.width * (READING_CHAR_CENTER_SHIFT[pairKey] || 0);
+      baLeft += shiftX;
+      saLeft += shiftX;
+
+      // Vertical: characters share baseline y0; the union of the boxes is
+      // centered, so the pictures grow into the free space above/below by
+      // however far each composition actually reaches.
+      const up = Math.max(mSa.cy * sSa, mBa.cy * sBa);
+      const down = Math.max((mSa.size - mSa.cy) * sSa, (mBa.size - mBa.cy) * sBa);
+      const y0 = (rect.height - (up + down)) / 2 + up + rect.height * (READING_CHAR_VERTICAL_SHIFT[pairKey] || 0);
+      saTop = y0 - mSa.cy * sSa;
+      baTop = y0 - mBa.cy * sBa;
+    } else if (!isTextFrame && !isLetterFrame) {
+      // Metrics not measured yet — realistically only reachable in the
+      // first moments after page load, since precomputeReadingPairAssets
+      // warms them at boot and the reading phase is many taps in. Render
+      // at the fallback layout now, and re-render this same frame once the
+      // measurements land (no-op if the person has already moved on).
+      // One retry only — see readingRetriedFrames above.
+      if (!readingRetriedFrames.has(frames[index].id)) {
+        readingRetriedFrames.add(frames[index].id);
+        const at = index;
+        Promise.all([getReadingWindow(saSpec.letter), getReadingWindow(baSpec.letter)]).then(() => {
+          if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
+            renderFrame(frames[index]);
+          }
+        });
+      }
+    } else if (isLetterFrame && lSa && lBa && (!companionId || lCompanion)) {
+      // Letters round: an entirely separate layout from the mascot math
+      // above (own font/size/position decisions, per Noam). The shared
+      // reference point is NOT the ink center (as with the mascots) but
+      // the ink BOTTOM edge — Noam's own design: "my point of reference
+      // is the Kamatz sign, so that will be the zero." Both taught letter
+      // PNGs, plus the silent companion when this pair has one (Aleph for
+      // Sa/Ba, He for Ka/Na — see companionId above), were authored at
+      // the same physical canvas size in one Photoshop document, so —
+      // unlike the mascots — there's no per-letter ink normalization
+      // step: all of them are simply scaled by one shared factor S.
+      //
+      // Screen order, left to right, is [companion], Ba, [gap], Sa —
+      // matching the right-to-left reading order Sa -> Ba(+silent
+      // companion). The companion sits right up against Ba
+      // (READING_SILENT_LETTER_GAP_FRACTION, much tighter than the Sa/Ba
+      // gap) since the two are one visual unit; the Sa/Ba gap stays
+      // exactly as tuned before any companion existed.
+      const pairKey = `${saSpec.letter}|${baSpec.letter}`;
+      const gapPx = rect.width * READING_LETTER_GAP_FRACTION;
+      const companionGapPx = rect.width * READING_SILENT_LETTER_GAP_FRACTION;
+      const widthBudget = rect.width * READING_LETTER_STAGE_WIDTH_FRACTION;
+      const heightBudget = rect.height * READING_LETTER_STAGE_HEIGHT_FRACTION;
+
+      // Height bound: Sa/Ba's ink bottoms share the kamatz baseline, so
+      // the union's height is (largest rise above it) + (largest drop
+      // below it). The silent companion (if any) is deliberately left out
+      // of this — see the vertical-placement note below for why it
+      // doesn't use this baseline at all.
+      const upPerS = Math.max(lSa.bottom - lSa.top, lBa.bottom - lBa.top);
+      const downPerS = Math.max(lSa.size - lSa.bottom, lBa.size - lBa.bottom);
+      let S = heightBudget / (upPerS + downPerS);
+
+      // Width bound (exact): same edge-pair approach as the mascot
+      // version. Ba's box is tentatively at x = 0; Sa is placed to its
+      // right (gapPx), and — only when this pair actually has a silent
+      // companion — it's placed to Ba's left (companionGapPx,
+      // negative-direction) and folded into the same edge-pair bounding,
+      // extended from two boxes to three. The union's width is the max
+      // over any (rightEdge - leftEdge) pair, so bounding every pair
+      // bounds the union either way.
+      const saLeftA = lBa.right - lSa.left; // sa box left = saLeftA*S + gapPx
+      const edgesRight = [
+        { a: lBa.size, g: 0 },                          // ba box right
+        { a: saLeftA + lSa.size, g: gapPx },             // sa box right
+      ];
+      const edgesLeft = [
+        { a: 0, g: 0 },                    // ba box left
+        { a: saLeftA, g: gapPx },          // sa box left
+      ];
+      let companionLeftA = 0;
+      if (companionId && lCompanion) {
+        companionLeftA = lBa.left - lCompanion.right; // companion box left = companionLeftA*S - companionGapPx
+        edgesRight.push({ a: companionLeftA + lCompanion.size, g: -companionGapPx }); // companion box right
+        edgesLeft.push({ a: companionLeftA, g: -companionGapPx });                    // companion box left
+      }
+      edgesRight.forEach((r) => edgesLeft.forEach((l) => {
+        const a = r.a - l.a;
+        const g = r.g - l.g;
+        if (a > 0 && widthBudget - g > 0) S = Math.min(S, (widthBudget - g) / a);
+      }));
+      if (!(S > 0)) S = 1; // degenerate screens only — never negative/NaN
+      // Ka/Na's own ink (Nun's vowel mark sits narrow and close-in) leaves
+      // more spare width than Sa/Ba's or Pa/Ra's letters do at the same
+      // gap/budget, so the shared width-bound formula above naturally lets
+      // Ka/Na's S grow larger — same box-fitting math, just fed a narrower
+      // union, producing a visibly bigger word (measured ~309px box vs.
+      // Sa/Ba's ~268px and Pa/Ra's ~287px). Noam: "For some reason, Kana is
+      // bigger than the other two... please match Kana back to the size of
+      // the other two." One multiplicative correction, applied after S is
+      // otherwise finalized so every downstream measurement (box sizes,
+      // companion size, centering) stays internally consistent — brings
+      // Ka/Na's box down to ~277px, the midpoint of the other two.
+      S *= (READING_LETTER_SCALE[pairKey] || 1);
+
+      saSize = lSa.size * S;
+      baSize = lBa.size * S;
+
+      // Horizontal: Ba at 0, Sa (and the companion, if any) placed so
+      // their ink-edge gaps are exact, then shift everything so the union
+      // is centered on screen.
+      baLeft = 0;
+      saLeft = lBa.right * S + gapPx - lSa.left * S;
+      if (companionId && lCompanion) {
+        companionSize = lCompanion.size * S;
+        companionLeft = companionLeftA * S - companionGapPx;
+        showCompanion = true;
+      }
+      const unionLeft = Math.min(baLeft, saLeft, showCompanion ? companionLeft : Infinity);
+      const unionRight = Math.max(baLeft + baSize, saLeft + saSize, showCompanion ? companionLeft + companionSize : -Infinity);
+      const shiftX = (rect.width - (unionRight - unionLeft)) / 2 - unionLeft + rect.width * READING_LETTER_GROUP_SHIFT_X_FRACTION;
+      baLeft += shiftX;
+      saLeft += shiftX;
+      if (showCompanion) companionLeft += shiftX;
+
+      // Vertical: Sa/Ba share baseline y0 (their ink bottoms — the kamatz
+      // mark), the union of the two boxes is centered on screen.
+      const up = upPerS * S;
+      const down = downPerS * S;
+      const y0 = (rect.height - (up + down)) / 2 + up;
+      saTop = y0 - lSa.bottom * S;
+      baTop = y0 - lBa.bottom * S;
+
+      // A silent companion carries no niqqud, so it has no kamatz to zero
+      // against — per Noam: "align all those [no-niqqud] letter images to
+      // their baseline... the way I built it in Photoshop, it will work."
+      // Every letter file — niqqud or not — is exported from the same
+      // Photoshop document at the same canvas size, so each canvas's own
+      // (0,0) origin already sits on the same real baseline grid Noam
+      // draws every glyph against. That means no ink-derived vertical
+      // adjustment is needed at all here: the companion's canvas simply
+      // shares Ba's canvas origin (the letter it stands beside), scaled
+      // by the same S. This is why it was left out of the upPerS/downPerS
+      // budget above — its height is whatever its own canvas gives it
+      // once pinned to Ba's origin, not a shared-baseline term.
+      if (showCompanion) companionTop = baTop;
+    } else if (isLetterFrame) {
+      // Metrics not measured yet — same reasoning/pattern as the mascot
+      // fallback above, using the letter-glyph windows instead. One retry
+      // only — see readingRetriedFrames above.
+      if (!readingRetriedFrames.has(frames[index].id)) {
+        readingRetriedFrames.add(frames[index].id);
+        const at = index;
+        const windowsToWarm = [getLetterWindow(saSpec.letter), getLetterWindow(baSpec.letter)];
+        if (companionId) windowsToWarm.push(getLetterWindow(companionId));
+        Promise.all(windowsToWarm).then(() => {
+          if (index === at && frames[index] && frames[index].kind === 'reading-pair') {
+            renderFrame(frames[index]);
+          }
+        });
+      }
+    }
+
+    const saBox = buildReadingBox(saSpec, active === saSpec.letter);
+    positionAbsolute(saBox, saLeft, saTop, saSize, saSize);
+
+    const baBox = buildReadingBox(baSpec, active === baSpec.letter);
+    positionAbsolute(baBox, baLeft, baTop, baSize, baSize);
+
+    stage.appendChild(saBox);
+    stage.appendChild(baBox);
+
+    if (showCompanion) {
+      // The silent companion letter (Aleph, He, ...) — not a taught
+      // letter, never active/tappable, no pulse — just a fixed companion
+      // glyph that belongs next to Ba's letter in the word's real
+      // spelling. See LETTERS[x].silentCompanion.
+      const companionImg = LETTERS[companionId].letterImg;
+      const companionBox = el('div', 'reading-box');
+      const companionImgEl = document.createElement('img');
+      companionImgEl.className = 'reading-box-img';
+      companionImgEl.alt = companionImg;
+      companionImgEl.src = companionImg;
+      companionBox.appendChild(companionImgEl);
+      positionAbsolute(companionBox, companionLeft, companionTop, companionSize, companionSize);
+      stage.appendChild(companionBox);
+    }
+
+    return stage;
+  }
+
+  // FINAL SENTENCE ROUND — one row of all 9 real letter glyphs (6 taught +
+  // 3 silent companions) spelling out "סַבָּא קָנָה פָּרָה", right to left:
+  //   [He] Ra  Pa    [He] Na  Ka    [Aleph] Ba  Sa
+  //   \_ Para word _/  \_ Kana word _/  \___ Saba word ___/
+  // (screen left to right; Hebrew is read right to left, so Saba — spoken
+  // first — sits on the right, same as every reading-pair round before it.)
+  //
+  // Geometry follows the exact same "fixed-budget, one shared scale, exact
+  // ink-edge gaps" approach as buildReadingStage's letters round just above
+  // — the only real difference is a straight left-to-right chain (9 links)
+  // instead of that round's 2-or-3-box case, and three different gap sizes
+  // instead of one (see the SENTENCE_*_GAP_FRACTION comment above). Once
+  // built, the geometry never changes across a tap — same invariant as
+  // everywhere else in this deck — only which single taught letter carries
+  // .reading-box--pulse changes, exactly mirroring how the reading-pair
+  // round cues attention without an arrow.
+  const SENTENCE_LAYOUT = [
+    // { id, taught, gapBefore } — gapBefore is the gap between this glyph
+    // and the previous one in the chain; null for the first glyph.
+    { id: 'he', taught: false, gapBefore: null },        // Para's companion
+    { id: 'ra', taught: true, gapBefore: 'companion' },
+    { id: 'pa', taught: true, gapBefore: 'letter' },
+    { id: 'he', taught: false, gapBefore: 'word' },       // Kana's companion
+    { id: 'na', taught: true, gapBefore: 'companion' },
+    { id: 'ka', taught: true, gapBefore: 'letter' },
+    { id: 'aleph', taught: false, gapBefore: 'word' },    // Saba's companion
+    { id: 'ba', taught: true, gapBefore: 'companion' },
+    { id: 'sa', taught: true, gapBefore: 'letter' },
+  ];
+  const SENTENCE_GAP_FRACTIONS = {
+    companion: SENTENCE_COMPANION_GAP_FRACTION,
+    letter: SENTENCE_LETTER_GAP_FRACTION,
+    word: SENTENCE_WORD_GAP_FRACTION,
+  };
+  function buildSentenceStage(frame) {
+    const stage = el('div', 'reading-stage');
+    // clientWidth/height, not getBoundingClientRect() — see applyStageSize.
+    const rect = { width: contentEl.clientWidth, height: contentEl.clientHeight };
+    stage.style.width = `${Math.round(rect.width)}px`;
+    stage.style.height = `${Math.round(rect.height)}px`;
+
+    const metrics = SENTENCE_LAYOUT.map((item) => letterMetrics(item.id));
+    if (metrics.some((m) => !m)) {
+      // Same one-retry-then-re-render pattern as every other reading stage
+      // above — realistically only reachable in the first instants after
+      // page load, since precomputeReadingPairAssets warms every one of
+      // these nine letters at boot.
+      if (!readingRetriedFrames.has(frame.id)) {
+        readingRetriedFrames.add(frame.id);
+        const at = frames.indexOf(frame);
+        Promise.all(SENTENCE_LAYOUT.map((item) => getLetterWindow(item.id))).then(() => {
+          if (index === at) renderFrame(frame);
+        });
+      }
+      return stage;
+    }
+
+    // Height bound: shared baseline (every taught letter's ink BOTTOM —
+    // same kamatz-is-zero convention as the letters round), so the row's
+    // height is (tallest rise above it) + (deepest drop below it), taught
+    // letters only — silent companions carry no baseline term, same reason
+    // as the letters round above (they simply inherit their host's canvas
+    // origin, see the companionTop assignment below).
+    let up = 0, down = 0;
+    SENTENCE_LAYOUT.forEach((item, i) => {
+      if (!item.taught) return;
+      const m = metrics[i];
+      up = Math.max(up, m.bottom - m.top);
+      down = Math.max(down, m.size - m.bottom);
+    });
+    const heightBudget = rect.height * SENTENCE_STAGE_HEIGHT_FRACTION;
+    const S_height = heightBudget / (up + down);
+
+    // Width bound: a straight left-to-right chain (unlike the letters
+    // round's 2-3-box min-over-edge-pairs — with nine glyphs strictly
+    // ordered and never reordered, the tight union width is just the
+    // accumulated ink widths plus the accumulated gaps between them, no
+    // search needed). widthBudget = ink*S + gaps(px, independent of S), so
+    // S is bounded by whatever's left after the fixed-pixel gaps.
+    const sumInkWidth = metrics.reduce((sum, m) => sum + (m.right - m.left), 0);
+    const sumGapFraction = SENTENCE_LAYOUT.reduce((sum, item) => sum + (item.gapBefore ? SENTENCE_GAP_FRACTIONS[item.gapBefore] : 0), 0);
+    const widthBudgetFraction = SENTENCE_STAGE_WIDTH_FRACTION - sumGapFraction;
+    const S_width = (rect.width * widthBudgetFraction) / sumInkWidth;
+
+    let S = Math.min(S_height, S_width);
+    if (!(S > 0)) S = 1; // degenerate screens only — never negative/NaN
+
+    // Horizontal placement: walk the chain left to right, anchoring each
+    // glyph's ink-left edge exactly one gap past the previous glyph's
+    // ink-right edge (the same "facing ink edges, fixed px apart"
+    // guarantee as every other gap constant in this file), then shift the
+    // whole row so its union is centered on screen.
+    const lefts = [];
+    let cursorInkRight = null; // previous glyph's ink-right edge, in screen px (pre-shift)
+    SENTENCE_LAYOUT.forEach((item, i) => {
+      const m = metrics[i];
+      let left;
+      if (cursorInkRight === null) {
+        left = -m.left * S; // first glyph: pin its own ink-left to x = 0
+      } else {
+        const gapPx = rect.width * SENTENCE_GAP_FRACTIONS[item.gapBefore];
+        left = cursorInkRight + gapPx - m.left * S;
+      }
+      lefts.push(left);
+      cursorInkRight = left + m.right * S;
+    });
+    const size = 700 * S; // every glyph shares the same 700x700 canvas
+    const unionLeft = Math.min(...lefts);
+    const unionRight = Math.max(...lefts.map((l) => l + size));
+    const shiftX = (rect.width - (unionRight - unionLeft)) / 2 - unionLeft;
+
+    // Vertical placement: taught letters share baseline y0 (ink bottom);
+    // each silent companion simply inherits its host's own top — same
+    // canvas-origin-sharing rule as the letters round (see the
+    // companionTop comment up in buildReadingStage). "Host" is always the
+    // very next glyph in the chain (a companion always immediately
+    // precedes the taught letter it belongs to — see SENTENCE_LAYOUT).
+    const y0 = (rect.height - (up + down) * S) / 2 + up * S;
+    const tops = SENTENCE_LAYOUT.map((item, i) => {
+      if (item.taught) return y0 - metrics[i].bottom * S;
+      return null; // filled in from the host below, once hosts are known
+    });
+    SENTENCE_LAYOUT.forEach((item, i) => {
+      if (!item.taught) tops[i] = tops[i + 1]; // companion's host is always next in the chain
+    });
+
+    SENTENCE_LAYOUT.forEach((item, i) => {
+      const box = el('div', 'reading-box');
+      const img = document.createElement('img');
+      img.className = 'reading-box-img';
+      img.alt = LETTERS[item.id].letterImg;
+      img.src = LETTERS[item.id].letterImg;
+      if (item.taught) {
+        applyLetterPulseOrigin(img, item.id);
+        if (frame.active === item.id) img.classList.add('reading-box--pulse');
+      }
+      box.appendChild(img);
+      positionAbsolute(box, lefts[i] + shiftX, tops[i], size, size);
+      stage.appendChild(box);
+    });
+
+    return stage;
+  }
+
+  // Final celebration after the full sentence is read — structurally the
+  // same "video + sound + confetti, no letters behind it" payoff as every
+  // chapter's word-reveal, just without a reading-stage behind the clip
+  // (there's no single word here, the sentence itself was the content, on
+  // the frames right before this one). If frame.video 404s (Noam's own
+  // note: he's producing this clip separately, may not exist in assets/
+  // yet), the video element's own 'error' listener below still fires
+  // confetti/already-played sound — the celebration never silently no-ops
+  // just because the clip isn't dropped in yet.
+  function buildFinalRevealStage(frame) {
+    const stage = el('div', 'reading-stage');
+    // clientWidth/height, not getBoundingClientRect() — see applyStageSize.
+    const rect = { width: contentEl.clientWidth, height: contentEl.clientHeight };
+    stage.style.width = `${Math.round(rect.width)}px`;
+    stage.style.height = `${Math.round(rect.height)}px`;
+    if (frame.video) {
+      const videoEl = document.createElement('video');
+      videoEl.className = 'saba-reveal-video';
+      videoEl.src = frame.video;
+      videoEl.autoplay = true;
+      videoEl.muted = true;
+      videoEl.playsInline = true;
+      videoEl.loop = false;
+      videoEl.preload = 'auto';
+      videoEl.style.objectPosition = frame.videoPosition || '50% center';
+      stage.appendChild(videoEl);
+      const CONFETTI_TRIGGER_TIME = (typeof frame.confettiAt === 'number') ? frame.confettiAt : 1.0;
+      let confettiFired = false;
+      const fireConfetti = () => {
+        if (confettiFired) return;
+        confettiFired = true;
+        const contentRect = contentEl.getBoundingClientRect();
+        burstConfetti(contentRect.left + contentRect.width / 2, contentRect.top + contentRect.height / 2);
+      };
+      videoEl.addEventListener('timeupdate', () => {
+        if (videoEl.currentTime >= CONFETTI_TRIGGER_TIME) fireConfetti();
+      });
+      videoEl.addEventListener('ended', fireConfetti);
+      videoEl.addEventListener('error', fireConfetti);
+    }
+    if (frame.sound) {
+      const soundEl = new Audio(frame.sound);
+      soundEl.loop = false;
+      const playPromise = soundEl.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {});
+      }
+    }
+    return stage;
+  }
+
+  // Saba reveal: reuses buildReadingStage verbatim for the word (identical
+  // geometry to reading-letters-combine — no jump on this tap), then layers
+  // Granddad's clip in behind it. Video goes in as the stage's FIRST child
+  // via insertBefore, so normal paint order puts it under the already-
+  // appended letter boxes — Noam explicitly okayed the word sitting in
+  // front of/overlapping the animation. Autoplay muted, no loop: Granddad
+  // walks in, waves, and holds on his last frame ("just a cycle once and
+  // stops," not a loop).
+  function buildSabaRevealStage(frame) {
+    const stage = buildReadingStage(frame.sa, frame.ba, null);
+    if (frame.video) {
+      const videoEl = document.createElement('video');
+      videoEl.className = 'saba-reveal-video';
+      videoEl.src = frame.video;
+      videoEl.autoplay = true;
+      videoEl.muted = true;
+      videoEl.playsInline = true;
+      videoEl.loop = false;
+      videoEl.preload = 'auto';
+      // Where object-fit:contain centers the video within any leftover
+      // letterbox gutter — only matters when the clip's own aspect ratio
+      // doesn't match the stage's, so this is a no-op (stays dead center)
+      // for any clip that doesn't set one, Saba's included.
+      videoEl.style.objectPosition = frame.videoPosition || '50% center';
+      stage.insertBefore(videoEl, stage.firstChild);
+      // Confetti timing — measured directly from each clip's own frames
+      // (see the comment at each frame's confettiAt value in buildDeck),
+      // since different reveal clips settle at different times. Falls back
+      // to Saba's original 3.6s (his arm-lift point in
+      // saba-wave-compressed.mp4, 5.6s total) if a frame doesn't specify
+      // one, so this stays byte-for-byte unchanged for chapter 1. Origin is
+      // #content's own live-measured center (same rect buildReadingStage
+      // uses), which sits right on the word/character group — not the left
+      // edge anyone walked in from, and not tied to a moving element's
+      // start point.
+      const CONFETTI_TRIGGER_TIME = (typeof frame.confettiAt === 'number') ? frame.confettiAt : 3.6;
+      let confettiFired = false;
+      const fireConfetti = () => {
+        if (confettiFired) return;
+        confettiFired = true;
+        const contentRect = contentEl.getBoundingClientRect();
+        burstConfetti(contentRect.left + contentRect.width / 2, contentRect.top + contentRect.height / 2);
+      };
+      videoEl.addEventListener('timeupdate', () => {
+        if (videoEl.currentTime >= CONFETTI_TRIGGER_TIME) fireConfetti();
+      });
+      // Safety net, not the primary trigger: guarantees the celebration
+      // still happens even if 'timeupdate' is ever skipped, or the clip
+      // fails to play at all — a broken/short clip shouldn't silently
+      // cancel the payoff. confettiFired guards against firing twice.
+      videoEl.addEventListener('ended', fireConfetti);
+      videoEl.addEventListener('error', fireConfetti);
+    }
+    if (frame.sound) {
+      // "Level complete" sting — plays once, immediately, the instant this
+      // slide is built (not muted: getting here is a real tap/user
+      // gesture, so browsers allow autoplay with sound here, unlike the
+      // video above). Not attached to the DOM at all — it doesn't need to
+      // be seen, just heard, and this keeps it out of the stage's paint
+      // order entirely.
+      const soundEl = new Audio(frame.sound);
+      soundEl.loop = false;
+      const playPromise = soundEl.play();
+      // Real browsers always return a Promise here; guarded defensively
+      // since not every environment does (jsdom's play() returns
+      // undefined) — ignore autoplay-policy rejections either way.
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {});
+      }
+    }
+    return stage;
+  }
+
+  // Shared by every buildCompositeStage-based frame kind below (solo-
+  // character, picture-reveal, anchor, blank, recall-prompt, recall-answer)
+  // — see the STORY_LOOP_CENTER_SHIFT comment above for why this MUST be
+  // applied identically to all of a letter's frames, never to a subset.
+  // frame.id always starts with the letter id by convention
+  // (buildCycleFrames/buildHidingRecall: `${id}-character`, `${id}-picture`,
+  // `${id}-anchor-*`, etc.), so this needs no per-frame-kind branching —
+  // one lookup covers every frame this letter will ever produce.
+  function applyStoryLoopCenterShift(stage, frame) {
+    const letterId = frame.id.split('-')[0];
+    const shift = STORY_LOOP_CENTER_SHIFT[letterId];
+    if (shift) stage.style.transform = `translateX(${shift * 100}%)`;
+  }
+
+  function renderFrame(frame) {
+    contentEl.innerHTML = '';
+
+    switch (frame.kind) {
+      // NOTE: no on-screen text for the teaching-cycle frames below — Noam
+      // narrates live and the caption strip (subtitle-style) carries the
+      // words, written directly in Hebrew in the UI OVERLAY LAYER's
+      // CAPTIONS map (search "CAPTION MODULE"). ('Yay!' is content in its
+      // own right, not narration, so it still renders text.)
+      // solo-character / picture-reveal / anchor / blank / recall-prompt /
+      // recall-answer ALL go through the same buildCompositeStage box, so
+      // size and position never jump between them.
+      case 'solo-character':
+      case 'recall-prompt': {
+        const stage = buildCompositeStage(frame.img, [], frame.fade);
+        applyStoryLoopCenterShift(stage, frame);
+        contentEl.appendChild(stage);
+        break;
+      }
+      case 'picture-reveal':
+      case 'recall-answer': {
+        const stage = buildCompositeStage(frame.img, []);
+        applyStoryLoopCenterShift(stage, frame);
+        contentEl.appendChild(stage);
+        break;
+      }
+      case 'anchor':
+      case 'blank': {
+        const stage = buildCompositeStage(frame.imgs[0], frame.imgs.slice(1), frame.fadeBase, frame.animateSrc, frame.animateOrigin);
+        applyStoryLoopCenterShift(stage, frame);
+        contentEl.appendChild(stage);
+        break;
+      }
+      case 'yay': {
+        // Plain blank screen + "Yay!" — no mascot/confetti/decoration in Pass 1.
+        // Pass 2 attaches celebration effects to this same frame kind.
+        contentEl.appendChild(el('p', 'big-text', frame.text));
+        break;
+      }
+      case 'reading-pair': {
+        // No on-screen text here either — same narration-lives-live rule as
+        // the teaching-cycle frames above; captions come from the UI
+        // layer's CAPTIONS map, not from frame data.
+        contentEl.appendChild(buildReadingStage(frame.sa, frame.ba, frame.active));
+        break;
+      }
+      case 'word-reveal': {
+        // Content in its own right (like 'yay'), not narration — the word
+        // itself renders, via the same letter-image stage as the reading
+        // round, with a clip layered in behind it. Generic across
+        // chapters — buildSabaRevealStage's name predates chapter 2, but
+        // the function itself only ever reads frame.sa/ba/video/sound, so
+        // it's reused verbatim for Kana (and every chapter after it).
+        contentEl.appendChild(buildSabaRevealStage(frame));
+        break;
+      }
+      case 'sentence-reading': {
+        // Final capstone round — the full taught sentence, one letter
+        // pulsing per tap. Same narration-lives-live rule as reading-pair
+        // above; captions come from the UI layer's CAPTIONS map.
+        contentEl.appendChild(buildSentenceStage(frame));
+        break;
+      }
+      case 'sentence-reveal': {
+        contentEl.appendChild(buildFinalRevealStage(frame));
+        break;
+      }
+      default: {
+        contentEl.appendChild(el('p', 'sub-text', `[unknown frame kind: ${frame.kind}]`));
+      }
+    }
+
+    hudEl.textContent = `${index + 1} / ${frames.length}`;
+    frameIdEl.textContent = frame.id;
+
+    if (frame.moment && MOMENTS[frame.moment]) {
+      MOMENTS[frame.moment](frame.momentArg !== undefined ? frame.momentArg : frame);
+    }
+    MOMENTS.onFrameRendered(frame);
+  }
+
+  function goTo(i) {
+    index = Math.max(0, Math.min(frames.length - 1, i));
+    renderFrame(frames[index]);
+  }
+  function next() { goTo(index + 1); }
+  function prev() { goTo(index - 1); }
+
+  // Expose for Pass 2 / debugging
+  window.SabaDeck = { frames, goTo, next, prev, get index() { return index; } };
+
+  // --- Navigation wiring ---
+  document.getElementById('stage').addEventListener('click', (e) => {
+    if (e.target.closest('#back-btn')) return;
+    next();
+  });
+  document.getElementById('back-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    prev();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'Backspace') { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') { goTo(0); }
+    else if (e.key.toLowerCase() === 'i') { frameIdEl.classList.toggle('show'); }
+  });
+  // Re-render on resize/orientation change so the stage box is re-fit to
+  // the new screen size (e.g. rotating an iPad mid-lesson).
+  window.addEventListener('resize', () => renderFrame(frames[index]));
+
+  // ---------------------------------------------------------------------
+  // BOARD SCALE MODULE — keeps #board-root-back/#board-root-front (the
+  // whole game-board system: background, white-fill, frame, topbar,
+  // arrows, dragon) locked together as one rigid unit at any window size.
+  // Both wrappers are a fixed 2400x1560 design canvas; this computes the
+  // largest uniform scale that fits the canvas inside the current window
+  // without cropping or distorting it, centers it, and applies the exact
+  // same transform to both wrappers — so nothing inside either one can
+  // ever drift relative to the other, regardless of how the browser
+  // window is sized. (Previously the full-canvas layers used
+  // background-size:cover while the smaller pieces used plain viewport
+  // percentages — those two scaling models only agree when the window's
+  // aspect ratio exactly matches 2400:1560, which is why the topbar/
+  // frame/dragon visibly drifted apart at other window sizes.)
+  // ---------------------------------------------------------------------
+  const boardRootBackEl = document.getElementById('board-root-back');
+  const boardRootFrontEl = document.getElementById('board-root-front');
+  function updateBoardScale() {
+    if (!boardRootBackEl || !boardRootFrontEl) return;
+    const scale = Math.min(window.innerWidth / 2400, window.innerHeight / 1560);
+    const offsetX = (window.innerWidth - 2400 * scale) / 2;
+    const offsetY = (window.innerHeight - 1560 * scale) / 2;
+    const transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+    boardRootBackEl.style.transform = transform;
+    boardRootFrontEl.style.transform = transform;
+  }
+  window.addEventListener('resize', updateBoardScale);
+  updateBoardScale();
+
+  // Boot
+  goTo(0);
+
+  // Note: the dragon's jump animation is wired up in the DELIGHT BAR
+  // MODULE above (playDragonJump(), triggered from celebrateLetter() on
+  // MOMENTS.onCycleComplete) — nothing left to do here.
+</script>
+</body>
+</html>
